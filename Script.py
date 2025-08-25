@@ -52,7 +52,7 @@ Added By - {}
     LOG_TEXT_P = """#NewUser
 ID - <code>{}</code>
 Name - {}
-@TheTomRobot
+@TheLadyRobot
 """
     CMDS_TXT = """<u>🎀 𝐀𝐝𝐦𝐢𝐧 𝐂𝐨𝐦𝐦𝐚𝐧𝐝𝐬 🎀</u>   
 /broadcast <skip_count>	Broadcast a message to all users
