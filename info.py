@@ -24,7 +24,7 @@ CACHE_TIME = int(environ.get('CACHE_TIME', 300))
 USE_CAPTION_FILTER = True
 
 # Pics
-PICS = (environ.get('PICS', 'https://envs.sh/tzK.jpg https://envs.sh/tzz.jpg https://envs.sh/tzY.jpg https://envs.sh/tz3.jpg https://envs.sh/tzC.jpg https://envs.sh/tzR.jpg https://envs.sh/tz1.jpg https://envs.sh/tz4.jpg https://envs.sh/tzU.jpg https://envs.sh/tzl.jpg')).split()
+PICS = (environ.get('PICS', 'https://envs.sh/tzC.jpg https://envs.sh/tz3.jpg https://envs.sh/tzY.jpg')).split()
 
 # Admins & Users
 OWNER_ID = environ.get('OWNER_ID', '5483128891')
