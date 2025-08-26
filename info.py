@@ -23,6 +23,9 @@ MAX_FILES = int(environ.get('MAX_FILES', 8))
 CACHE_TIME = int(environ.get('CACHE_TIME', 300))
 USE_CAPTION_FILTER = True
 
+# Pics
+PICS = (environ.get('PICS', '')).split()
+
 # Admins & Users
 OWNER_ID = environ.get('OWNER_ID', '5483128891')
 ADMINS = [int(admin) if id_pattern.search(admin) else admin for admin in environ.get('ADMINS', '5483128891').split()]
