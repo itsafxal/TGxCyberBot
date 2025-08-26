@@ -150,7 +150,7 @@ async def next_page_cb(bot, query):
     try:
         current_page = (offset // MAX_FILES) + 1
         await query.edit_message_text(
-            f"𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {req}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `{current_page}`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚𝙙 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣𝙨..❗️\n ©ᵀᵉˢˢᵃ🗡️",
+            f"𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {req}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `{current_page}`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚𝙙 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣𝙨..❗️\n ©𝒸ᵧᵦₑᵣₜ𝓰 🗡️",
             reply_markup=InlineKeyboardMarkup(buttons)
         )
     except MessageNotModified:
@@ -348,7 +348,7 @@ async def auto_filter(client, message):
     search_key = f"{message.from_user.id}_{message.id}"
     if offset:
         buttons.append([InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")])
-    caption = f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚𝙙 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣𝙨..❗️\n ©ᵀᵉˢˢᵃ🗡️"
+    caption = f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚𝙙 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣𝙨..❗️\n ©𝒸ᵧᵦₑᵣₜ𝓰 🗡️"
     sent_message = await message.reply_text(caption, reply_markup=InlineKeyboardMarkup(buttons), quote=True)
     SEARCH_CACHE.set(search_key, search)
     await add_auto_delete_message(sent_message.id, sent_message.chat.id, AUTO_DEL)
@@ -370,7 +370,7 @@ async def pm_auto_filter(client, message):
     search_key = f"{message.from_user.id}_{message.id}"
     if offset > MAX_FILES:
         buttons.append([InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset-1}")])
-    caption = f"𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚𝙙 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣𝙨..❗️\n ©ᵀᵉˢˢᵃ🗡️"
+    caption = f"𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚𝙙 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣𝙨..❗️\n ©𝒸ᵧᵦₑᵣₜ𝓰 🗡️"
 
     sent_message = await message.reply_text(caption, reply_markup=InlineKeyboardMarkup(buttons), quote=True)
     SEARCH_CACHE.set(search_key, search)
