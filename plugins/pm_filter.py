@@ -272,11 +272,6 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             InlineKeyboardButton('✜ ᴀʙᴏᴜᴛ', callback_data="about")
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
-        await client.edit_message_media(
-            query.message.chat.id, 
-            query.message.id, 
-            InputMediaPhoto(random.choice(PICS))
-        )
         await query.message.edit_text(
             text=script.START_TXT.format(query.message.from_user.mention if query.message.from_user else "User"),
             reply_markup=reply_markup
@@ -287,11 +282,6 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             InlineKeyboardButton('🏡 ʜᴏᴍᴇ', callback_data="start")
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
-        await client.edit_message_media(
-            query.message.chat.id, 
-            query.message.id, 
-            InputMediaPhoto(random.choice(PICS))
-        )
         await query.message.edit_text(
             text=script.HELP_TXT.format(query.message.from_user.mention if query.message.from_user else "User"),
             reply_markup=reply_markup
@@ -305,11 +295,6 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             InlineKeyboardButton('🏡 ʜᴏᴍᴇ', callback_data="start")
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
-        await client.edit_message_media(
-            query.message.chat.id, 
-            query.message.id, 
-            InputMediaPhoto(random.choice(PICS))
-        )
         await query.message.edit_text(
             text=script.ABOUT_TXT.format(query.message.from_user.mention if query.message.from_user else "User"),
             reply_markup=reply_markup
@@ -341,11 +326,6 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             used_dbSize3 = (stats_db3['dataSize'] / (1024 * 1024)) + (stats_db3['indexSize'] / (1024 * 1024))
         except Exception:
             used_dbSize3 = 0.0
-        await client.edit_message_media(
-            query.message.chat.id, 
-            query.message.id, 
-            InputMediaPhoto(random.choice(PICS))
-        )
         await query.message.edit_text(
             text=script.STATUS_TXT.format(total, users, chats, used_dbSize1, used_dbSize2, used_dbSize3),
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('⬅️ Back', callback_data='start')]]),
