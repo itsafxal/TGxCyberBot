@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 import asyncio
+import random
 import base64
 import json
 from datetime import datetime, timedelta
@@ -12,7 +13,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from Script import script
 from database.ia_filterdb import Media2, Media3, get_file_details, unpack_new_file_id
 from database.users_chats_db import db
-from info import ADMINS, LOG_CHANNEL, CUSTOM_FILE_CAPTION, AUTO_DEL
+from info import ADMINS, LOG_CHANNEL, CUSTOM_FILE_CAPTION, AUTO_DEL, PICS
 from utils import get_size, is_requested_one, is_requested_two, is_requested_three, temp, check_loop_sub, check_loop_sub1, check_loop_sub2, check_loop_sub3, temp
 from sql.db import delete_all_files_sql, delete_file_sql
 
