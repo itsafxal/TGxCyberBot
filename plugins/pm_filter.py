@@ -108,13 +108,15 @@ async def auto_filter_pm_handler(client, message):
         return
     if not await global_filters(client, message):
         await pm_auto_filter(client, message)
-
+        
 @Client.on_message(
     (filters.forwarded | filters.document | filters.photo | filters.video | 
      filters.audio | filters.voice | filters.video_note | 
      filters.sticker | filters.animation) & filters.private
 )
 async def delete_unwanted_messages(client, message):
+    user_id = message.from_user.id
+    if user_id in ADMINS: return # ignore admins
     await message.delete()
     
 # --- Callback Handlers ---
