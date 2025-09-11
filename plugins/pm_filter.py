@@ -280,6 +280,8 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
         )
     elif data == "help":
         buttons = [[
+            InlineKeyboardButton('🍷 DᴀᴛᴀBᴀsᴇ Sᴛᴀᴛᴜs 🍷', callback_data="stats")
+        ],[
             InlineKeyboardButton('☘ ᴀʙᴏᴜᴛ', callback_data="about"),
             InlineKeyboardButton('🏡 ʜᴏᴍᴇ', callback_data="start")
         ]]
@@ -302,7 +304,7 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             reply_markup=reply_markup
         )
     elif data == "stats":
-        await query.message.edit_text("⏳ **Fetching statistics...**")
+        await query.message.edit_text("⏳Lᴏᴀᴅɪɴɢ sᴛᴀᴛɪsᴛɪᴄs...")
         
         tot1 = await Media2.count_documents()
         tot2 = await Media3.count_documents()
@@ -330,7 +332,7 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             used_dbSize3 = 0.0
         await query.message.edit_text(
             text=script.STATUS_TXT.format(total, users, chats, used_dbSize1, used_dbSize2, used_dbSize3),
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('⬅️ Back', callback_data='start')]]),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('🏡 ʜᴏᴍᴇ', callback_data='start')]]),
             parse_mode=enums.ParseMode.HTML
         )
 
