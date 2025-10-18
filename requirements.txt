@@ -14,4 +14,4 @@ psutil
 python-dotenv
 pytz
 aiofiles
-uvloop
+uvloop==0.21.0
