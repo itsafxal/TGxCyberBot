@@ -263,6 +263,10 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
         except Exception as e:
             logger.error(f"Error during combined deletion: {e}", exc_info=True)
             await msg.edit_text(f'❌ **An unexpected error occurred:** `{e}`')
+    elif query.data == "abc":
+        await query.answer("Tʜɪs ғᴇᴀᴛᴜʀᴇ ᴡɪʟʟ ʙᴇ ᴀᴅᴅ sᴏᴏɴ 😉", show_alert=True)
+    elif query.data == "efg":
+        await query.answer("Tʜɪs ғᴇᴀᴛᴜʀᴇ ᴡɪʟʟ ʙᴇ ᴀᴅᴅ sᴏᴏɴ 😉", show_alert=True)
 
     elif data == "start":
         buttons = [[
@@ -349,14 +353,35 @@ async def auto_filter(client, message):
         return
 
     user_id = message.from_user.id
-    buttons = [[InlineKeyboardButton(f"🧸 {file['size']} 🌷 {file['file_name']}", callback_data=f"file#{file['file_id']}")] for file in files]
+    btn = [
+    [
+        InlineKeyboardButton(
+            text=f"🧸 {file['size']} 🌷 {file['file_name']}",
+            callback_data=f"file#{file['file_id']}"
+        ),
+    ]
+    for file in files
+    ]
+    btn.insert(0, [
+        InlineKeyboardButton(text=f"🎬 {search} 🎬", callback_data="qinfo")
+    ])
+    btn.insert(1, [
+        InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data="abc"),
+        InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data="efg")
+    ])
     search_key = f"{message.from_user.id}_{message.id}"
     if offset:
-        buttons.append([InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")])
-    caption = f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚𝙙 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣𝙨..❗️\n ©𝒸ᵧᵦₑᵣₜ𝓰 🗡️"
-    sent_message = await message.reply_text(caption, reply_markup=InlineKeyboardMarkup(buttons), quote=True)
-    SEARCH_CACHE.set(search_key, search)
-    await add_auto_delete_message(sent_message.id, sent_message.chat.id, AUTO_DEL)
+        btn.append([
+            InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
+        ])
+        caption = f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚𝙙 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣𝙨..❗️\n ©𝒸ᵧᵦₑᵣₜ𝓰🗡️"
+        sent_message = await message.reply_text(
+            caption,
+            reply_markup=InlineKeyboardMarkup(btn),
+            quote=True
+        )
+        SEARCH_CACHE.set(search_key, search)
+        await add_auto_delete_message(sent_message.id, sent_message.chat.id, AUTO_DEL)
 
 async def pm_auto_filter(client, message):
     search = message.text
