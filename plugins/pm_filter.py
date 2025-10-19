@@ -120,7 +120,6 @@ async def delete_unwanted_messages(client, message):
     await message.delete()
     
 # --- Callback Handlers ---
-
 @Client.on_callback_query(filters.regex(r"^next"))
 async def next_page_cb(bot, query):
     _, search_key, offset = query.data.split("|")
@@ -132,9 +131,10 @@ async def next_page_cb(bot, query):
     requested_user_id = int(search_key.split("_")[0])
     if query.from_user.id != requested_user_id:
         return await query.answer("✋ This is not for you! Please make your own search.", show_alert=True)
-        
+    
     offset = int(offset)
     files, next_offset = await get_search_results(req, offset=offset)
+    
     if not files:
         return await query.answer("No more results found.", show_alert=True)
     btn = [
@@ -142,7 +142,7 @@ async def next_page_cb(bot, query):
         InlineKeyboardButton(
             text=f"🧸 {file['size']} 🌷 {file['file_name']}",
             callback_data=f"file#{file['file_id']}"
-    ),
+        ),
     ]
     for file in files
     ]
@@ -157,19 +157,21 @@ async def next_page_cb(bot, query):
     if offset-MAX_FILES >= 0:
         nav_buttons.append(InlineKeyboardButton("⏮ 𝗕𝗮𝗰𝗸", callback_data=f"next|{search_key}|{(offset - MAX_FILES)}"))
     if next_offset > offset + MAX_FILES:
-        nav_buttons.append(InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{next_offset-1}"))      
+        nav_buttons.append(InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{next_offset-1}"))
+        
     if nav_buttons:
-        buttons.append(nav_buttons)
+        btn.append(nav_buttons)
+
     try:
         current_page = (offset // MAX_FILES) + 1
         await query.edit_message_text(
-            f"𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {req}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `{current_page}`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚𝙙 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣𝙨..❗️\n ©𝒸ᵧᵦₑᵣₜ𝓰 🗡️",
+            f"𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {req}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `{current_page}`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚𝙙 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣𝙨..❗️\n ©𝒸ᵧᵦₑᵣₜ𝓰🗡️",
             reply_markup=InlineKeyboardMarkup(btn)
         )
     except MessageNotModified:
         pass
     await query.answer()
-
+    
 
 @Client.on_callback_query()
 async def main_cb_handler(client: Client, query: CallbackQuery):
