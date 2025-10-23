@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 DELETE_TXT = "🗑️ _This message and the file will be deleted in {} seconds._".format(AUTO_DEL)
 GLOBAL_FILTER_CACHE = {}
 CACHE_TTL = timedelta(minutes=5)
+LANGUAGES = {"ᴍᴀʟᴀʏᴀʟᴀᴍ":"malayalam","ᴛᴀᴍɪʟ":"tamil","ᴇɴɢʟɪsʜ":"english","ʜɪɴᴅɪ":"hindi","ᴛᴇʟᴜɢᴜ":"telugu","ᴋᴀɴɴᴀᴅᴀ":"kannada"}
+QUALITIES = ["360P", "480P", "720P", "1080P", "1440P", "2160P", "4K"]
 
 # --- Helper Functions ---
 
@@ -89,6 +91,15 @@ def get_file_caption(file_info):
         f_caption = f"{file_info.file_name}"
     
     return f_caption
+
+def get_all_language_codes():
+    """Returns a list of all language search terms (codes) from the LANGUAGES dict."""
+    # Assuming LANGUAGES is a dict: {"Name": "code"}
+    try:
+        return [code.lower() for code in LANGUAGES.values()]
+    except AttributeError:
+        # Fallback if LANGUAGES is structured differently or not a dict
+        return [str(lang).lower() for lang in LANGUAGES]
 # --- Message Handlers ---
 
 @Client.on_message(filters.text & filters.incoming & filters.group & filters.regex(r'^(?!\/).*'))
@@ -122,56 +133,294 @@ async def delete_unwanted_messages(client, message):
 # --- Callback Handlers ---
 @Client.on_callback_query(filters.regex(r"^next"))
 async def next_page_cb(bot, query):
-    _, search_key, offset = query.data.split("|")
+    try:
+        _, search_key, offset_str = query.data.split("|")
+        offset = int(offset_str)
+    except ValueError:
+        return await query.answer("Invalid pagination data.", show_alert=True)
+    
     cyber = query.from_user.mention
     req = SEARCH_CACHE.get(search_key)
+
     if not req:
         await query.answer("🔁 Search expired or not found.", show_alert=True)
         return
+
+    # Permission check
     requested_user_id = int(search_key.split("_")[0])
     if query.from_user.id != requested_user_id:
         return await query.answer("✋ This is not for you! Please make your own search.", show_alert=True)
-    
-    offset = int(offset)
+
     files, next_offset = await get_search_results(req, offset=offset)
-    
+
     if not files:
         return await query.answer("No more results found.", show_alert=True)
+
     btn = [
-    [
-        InlineKeyboardButton(
-            text=f"🧸 {file['size']} 🌷 {file['file_name']}",
-            callback_data=f"file#{file['file_id']}"
-        ),
+        [
+            InlineKeyboardButton(
+                text=f"🧸 {file['size']} 🌷 {file['file_name']}",
+                callback_data=f"file#{file['file_id']}"
+            ),
+        ]
+        for file in files
     ]
-    for file in files
-    ]
+
+    # Re-insert filter buttons (FIXED: Using search_key)
     btn.insert(0, [
-        InlineKeyboardButton(text=f"🎬 {req} 🎬", callback_data="qinfo")
-    ])
-    btn.insert(1, [
-        InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data="abc"),
-        InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data="efg")
-    ])
+            InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
+            InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
+        ])
+
     nav_buttons = []
-    if offset-MAX_FILES >= 0:
-        nav_buttons.append(InlineKeyboardButton("⏮ 𝗕𝗮𝗰𝗸", callback_data=f"next|{search_key}|{(offset - MAX_FILES)}"))
-    if next_offset > offset + MAX_FILES:
-        nav_buttons.append(InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{next_offset-1}"))
+    if offset > 0: # Check if we can go back
+        # Calculate the starting offset for the previous page
+        prev_offset = max(0, offset - MAX_FILES) 
+        nav_buttons.append(InlineKeyboardButton("⏮ 𝗕𝗮𝗰𝗸", callback_data=f"next|{search_key}|{prev_offset}"))
         
+    if next_offset:
+        nav_buttons.append(InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{next_offset}"))
+
     if nav_buttons:
         btn.append(nav_buttons)
 
     try:
         current_page = (offset // MAX_FILES) + 1
         await query.edit_message_text(
-            f"𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {req}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `{current_page}`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚𝙙 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣𝙨..❗️\n ©𝒸ᵧᵦₑᵣₜ𝓰🗡️",
+            f"𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {req}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `{current_page}`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞ɴ 15 𝙈𝙞ɴS..❗️\n ©ᵀᵉˢˢᵃ🗡️",
             reply_markup=InlineKeyboardMarkup(btn)
         )
     except MessageNotModified:
         pass
     await query.answer()
+
+
+@Client.on_callback_query(filters.regex(r"^languages#"))
+async def languages_cb_handler(client: Client, query: CallbackQuery):
+    try:
+        _, search_key = query.data.split("#")
+    except ValueError:
+        return await query.answer("Invalid callback data structure.", show_alert=True)
+
+    # Permission check (Cleaned up the logic)
+    requested_user_id = int(search_key.split("_")[0])
+    if query.from_user.id != requested_user_id:
+        return await query.answer(
+            f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
+            show_alert=True,
+        )
+
+    # Retrieve query just to ensure it's valid
+    if not SEARCH_CACHE.get(search_key):
+        return await query.answer("Search expired or not found. Please try again.", show_alert=True)
+
+    items = list(LANGUAGES.items())
+    btn = []
+
+    # Create language buttons in two columns
+    for i in range(0, len(items), 2):
+        name1, code1 = items[i]
+        row = [InlineKeyboardButton(
+            text=name1, 
+            callback_data=f"fl#{code1.lower()}#{search_key}"
+        )]
+        if i + 1 < len(items):
+            name2, code2 = items[i + 1]
+            row.append(InlineKeyboardButton(
+                text=name2, 
+                callback_data=f"fl#{code2.lower()}#{search_key}"
+            ))
+        btn.append(row)
+
+    btn.insert(0, [InlineKeyboardButton(
+        text="⇊ ꜱᴇʟᴇᴄᴛ ʟᴀɴɢᴜᴀɢᴇ ⇊", callback_data="ident")])
+        
+    # Back button to main file list (page 1) - FIXED callback data
+    btn.append([InlineKeyboardButton(text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭",
+                 callback_data=f"next|{search_key}|0")])
+
+    await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
+    await query.answer()
+
+
+@Client.on_callback_query(filters.regex(r"^fl#"))
+async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
+    try:
+        _, lang_code, search_key = query.data.split("#")
+    except ValueError:
+        return await query.answer("Invalid language filter data.", show_alert=True)
+    original_search_query = SEARCH_CACHE.get(search_key)
+    if not original_search_query:
+        return await query.answer("Search expired or not found. Please try again.", show_alert=True)
+    requested_user_id = int(search_key.split("_")[0])
+    if query.from_user.id != requested_user_id:
+        return await query.answer(
+            f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
+            show_alert=True,
+        )
+    search_words = original_search_query.lower().split()
+    all_language_codes = get_all_language_codes()
+    cleaned_words = [word for word in search_words if word not in all_language_codes]
+    if lang_code.lower() not in cleaned_words: # Prevent double-adding the same code if logic fails
+        cleaned_words.append(lang_code.lower())
+    search = " ".join(cleaned_words)
+    SEARCH_CACHE.set(search_key, search)
+    try:
+        files, offset = await get_search_results(search, offset=0)
+
+        if not files:
+            await query.answer("🚫 𝗡𝗼 𝗙𝗶𝗹𝗲 𝗪𝗲𝗿𝗲 𝗙𝗼𝘂𝗻𝗱 🚫", show_alert=True)
+            # Revert to the language selection menu if no results are found
+            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭", callback_data=f"next|{search_key}|0")]
+            ]))
+            return
+
+        btn = [
+            [
+                InlineKeyboardButton(
+                    text=f"🧸 {file['size']} 🌷 {file['file_name']}",
+                    callback_data=f"file#{file['file_id']}"
+                ),
+            ]
+            for file in files
+        ]
+        btn.insert(0, [
+            InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
+            InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
+        ])
+
+        if offset:
+            btn.append([
+                InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
+            ])
+        else:
+            btn.append([InlineKeyboardButton(
+                text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
+
+        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
+    except MessageNotModified:
+        pass
+    except Exception as e:
+        print(f"Error in filter_languages_cb_handler: {e}")
+        await query.answer("An error occurred during search.", show_alert=True)
     
+    await query.answer()
+
+@Client.on_callback_query(filters.regex(r"^qualities#"))
+async def qualities_cb_handler(client: Client, query: CallbackQuery):
+    try:
+        _, search_key = query.data.split("#")
+    except ValueError:
+        return await query.answer("Invalid callback data structure.", show_alert=True)
+
+    original_search_query = SEARCH_CACHE.get(search_key)
+    if not original_search_query:
+        return await query.answer("Search expired or not found. Please try again.", show_alert=True)
+
+    # Check permission
+    requested_user_id = int(search_key.split("_")[0])
+    if query.from_user.id != requested_user_id:
+        return await query.answer(
+            f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\n"
+            f"ᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
+            show_alert=True,
+        )
+
+    btn = []
+    # Create quality filter buttons in two columns
+    for i in range(0, len(QUALITIES), 2):
+        q1 = QUALITIES[i]
+        row = [InlineKeyboardButton(
+            text=q1, callback_data=f"fq#{q1.lower()}#{search_key}")]
+        if i + 1 < len(QUALITIES):
+            q2 = QUALITIES[i + 1]
+            row.append(InlineKeyboardButton(
+                text=q2, callback_data=f"fq#{q2.lower()}#{search_key}"))
+        btn.append(row)
+
+    btn.insert(0, [
+        InlineKeyboardButton(text="⇊ ꜱᴇʟᴇᴄᴛ ǫᴜᴀʟɪᴛʏ ⇊", callback_data="ident")
+    ])
+    btn.append([
+        InlineKeyboardButton(text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭",
+                             callback_data=f"next|{search_key}|0")
+    ])
+
+    await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
+
+
+@Client.on_callback_query(filters.regex(r"^fq#"))
+async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
+    try:
+        _, qual, search_key = query.data.split("#")
+    except ValueError:
+        return await query.answer("Invalid quality filter data.", show_alert=True)
+
+    original_search_query = SEARCH_CACHE.get(search_key)
+
+    if not original_search_query:
+        return await query.answer("Search expired or not found. Please try again.", show_alert=True)
+
+    # Check permission
+    requested_user_id = int(search_key.split("_")[0])
+    if query.from_user.id != requested_user_id:
+        return await query.answer(f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...", show_alert=True)
+
+    search_list = original_search_query.lower().split()
+    qual_lower = qual.lower()
+
+    # Toggling logic (removes quality if present, adds if absent)
+    if qual_lower in search_list:
+        search_list.remove(qual_lower)
+    elif qual_lower != "homepage":
+        all_qualities_lower = [q.lower() for q in QUALITIES]
+        search_list = [word for word in search_list if word not in all_qualities_lower]
+        search_list.append(qual_lower)
+    search = " ".join(search_list)
+    # Update the cache with the current (potentially filtered) search query
+    SEARCH_CACHE.set(search_key, search)
+    try:
+        # Get filtered results
+        files, offset = await get_search_results(search, offset=0)
+        
+        if not files:
+            await query.answer("🚫 ɴᴏ ꜰɪʟᴇꜱ ᴡᴇʀᴇ ꜰᴏᴜɴᴅ 🚫", show_alert=True)
+            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭", callback_data=f"next|{search_key}|0")]
+            ]))
+            return
+
+        btn = [
+            [
+                InlineKeyboardButton(
+                    text=f"🧸 {file['size']} 🌷 {file['file_name']}",
+                    callback_data=f"file#{file['file_id']}"
+                ),
+            ]
+            for file in files
+        ]
+        btn.insert(0, [
+            InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
+            InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
+        ])
+        if offset:
+            btn.append([
+                InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
+            ])
+        else:
+            btn.append([InlineKeyboardButton(
+                text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
+            
+        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
+    except MessageNotModified:
+        pass
+    except Exception as e:
+        print(f"Error in filter_qualities_cb_handler search: {e}")
+        await query.answer("An error occurred during search.", show_alert=True)
+    
+    await query.answer()
+####################################################################################################################################################################################################
 
 @Client.on_callback_query()
 async def main_cb_handler(client: Client, query: CallbackQuery):
@@ -357,43 +606,38 @@ async def auto_filter(client, message):
     cyber = message.from_user.mention
     if len(search) < 2 or len(search) > 150:
         return
-    files, offset = await get_search_results(search)
+    files, offset = await get_search_results(search, offset=0)
     if not files:
-        spellbtn = [[InlineKeyboardButton(f"🔎 ᴄʜᴇᴄᴋ sᴘᴇʟʟɪɴɢ ᴏɴ ɢᴏᴏɢʟᴇ 🔍", url=f"https://google.com/search?q={search}")]] 
-        sent_message = await message.reply_text(f"Hᴇʏ {cyber} 💐,\nNᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Qᴜᴇʀʏ <u>{search}</u>.\n\n➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴀꜱᴇᴅ.✨", reply_markup=InlineKeyboardMarkup(spellbtn), quote=True)
-        await add_auto_delete_message(sent.id, sent.chat.id, 30)
+        await message.reply(
+            f"Hᴇʏ {cyber} 💫,\nNᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ RᴇʟᴇᴇsEᴅ.✨",
+            quote=True
+        )
         return
-
-    user_id = message.from_user.id
+    search_key = f"{message.from_user.id}_{message.id}"
     btn = [
-    [
-        InlineKeyboardButton(
-            text=f"🧸 {file['size']} 🌷 {file['file_name']}",
-            callback_data=f"file#{file['file_id']}"
-        ),
-    ]
-    for file in files
+        [
+            InlineKeyboardButton(
+                text=f"🧸 {file['size']} 🌷 {file['file_name']}",
+                callback_data=f"file#{file['file_id']}"
+            ),
+        ]
+        for file in files
     ]
     btn.insert(0, [
-        InlineKeyboardButton(text=f"🎬 {search} 🎬", callback_data="qinfo")
+            InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
+            InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
     ])
-    btn.insert(1, [
-        InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data="abc"),
-        InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data="efg")
-    ])
-    search_key = f"{message.from_user.id}_{message.id}"
     if offset:
         btn.append([
             InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
         ])
-        caption = f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚𝙙 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣𝙨..❗️\n ©𝒸ᵧᵦₑᵣₜ𝓰🗡️"
-        sent_message = await message.reply_text(
-            caption,
-            reply_markup=InlineKeyboardMarkup(btn),
-            quote=True
-        )
-        SEARCH_CACHE.set(search_key, search)
-        await add_auto_delete_message(sent_message.id, sent_message.chat.id, AUTO_DEL)
+    caption = f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣S..❗️\n ©ᵀᵉˢˢᵃ🗡️"
+    await message.reply_text(
+        caption,
+        reply_markup=InlineKeyboardMarkup(btn),
+        quote=True
+    )
+    SEARCH_CACHE.set(search_key, search)
 
 async def pm_auto_filter(client, message):
     search = message.text
