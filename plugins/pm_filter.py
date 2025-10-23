@@ -644,24 +644,38 @@ async def pm_auto_filter(client, message):
     cyber = message.from_user.mention
     if len(search) < 2 or len(search) > 150:
         return
-    files, offset = await get_search_results(search)
+    files, offset = await get_search_results(search, offset=0)
     if not files:
-        spellbtn = [[InlineKeyboardButton(f"🔎 ᴄʜᴇᴄᴋ sᴘᴇʟʟɪɴɢ ᴏɴ ɢᴏᴏɢʟᴇ 🔍", url=f"https://google.com/search?q={search}")]] 
-        sent_message = await message.reply(f"Hᴇʏ {cyber} 💐,\nNᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Qᴜᴇʀʏ <u>{search}</u>.\n\n➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴀꜱᴇᴅ.✨", reply_markup=InlineKeyboardMarkup(spellbtn), quote=True)
-        schedule_message_deletion(client, sent_message, delay_seconds=15)
+        await message.reply(
+            f"Hᴇʏ {cyber} 💫,\nNᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ RᴇʟᴇᴇsEᴅ.✨",
+            quote=True
+        )
         return
-
-    user_id = message.from_user.id
-    buttons = [[InlineKeyboardButton(f"🧸 {file['size']} 🌷 {file['file_name']}", callback_data=f"file#{file['file_id']}")] for file in files]
-
     search_key = f"{message.from_user.id}_{message.id}"
-    if offset > MAX_FILES:
-        buttons.append([InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset-1}")])
-    caption = f"𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚𝙙 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣𝙨..❗️\n ©𝒸ᵧᵦₑᵣₜ𝓰 🗡️"
-
-    sent_message = await message.reply_text(caption, reply_markup=InlineKeyboardMarkup(buttons), quote=True)
+    btn = [
+        [
+            InlineKeyboardButton(
+                text=f"🧸 {file['size']} 🌷 {file['file_name']}",
+                callback_data=f"file#{file['file_id']}"
+            ),
+        ]
+        for file in files
+    ]
+    btn.insert(0, [
+            InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
+            InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
+    ])
+    if offset:
+        btn.append([
+            InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
+        ])
+    caption = f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣S..❗️\n ©ᵀᵉˢˢᵃ🗡️"
+    await message.reply_text(
+        caption,
+        reply_markup=InlineKeyboardMarkup(btn),
+        quote=True
+    )
     SEARCH_CACHE.set(search_key, search)
-    schedule_message_deletion(client, sent_message, delay_seconds=AUTO_DEL)
     
 async def global_filters(client, message):
     """Optimized global filter check using a cached regex pattern."""
