@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 DELETE_TXT = "🗑️ _This message and the file will be deleted in {} seconds._".format(AUTO_DEL)
 GLOBAL_FILTER_CACHE = {}
 CACHE_TTL = timedelta(minutes=5)
-LANGUAGES = {"ᴍᴀʟᴀʏᴀʟᴀᴍ":"malayalam","ᴛᴀᴍɪʟ":"tamil","ᴇɴɢʟɪsʜ":"english","ʜɪɴᴅɪ":"hindi","ᴛᴇʟᴜɢᴜ":"telugu","ᴋᴀɴɴᴀᴅᴀ":"kannada"}
+LANGUAGES = {"മലയാളം":"malayalam","தமிழ்":"tamil","ᴇɴɢʟɪsʜ":"english","हिन्दी":"hindi","తెలుగు":"telugu","కన్నడ":"kannada","🪄 ᴍᴜʟᴛɪ ʟᴀɴɢ 🪄":"multi"}
 QUALITIES = ["360P", "480P", "720P", "1080P", "1440P", "2160P", "4K"]
 
 # --- Helper Functions ---
