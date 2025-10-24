@@ -91,45 +91,7 @@ def get_file_caption(file_info):
         f_caption = f"{file_info.file_name}"
     
     return f_caption
-##############################################################################################################################################################################################################
-
-def generate_main_buttons(files, offset, search_key):
-    btn = [
-        [
-            InlineKeyboardButton(
-                text=f"🧸 {file.get('size', 'N/A')} 🌷 {file.get('file_name', 'No Name')}",
-                callback_data=f"file#{file['file_id']}"
-            ),
-        ]
-        for file in files
-    ]
-    btn.insert(0, [
-        InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
-        InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
-    ])
-    if offset:
-        btn.append([
-            InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
-        ])
-    else:
-        btn.append([InlineKeyboardButton(
-            text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
-
-    return btn
     
-def get_all_language_codes():
-    try:
-        return [code.lower() for code in LANGUAGES.values()]
-    except AttributeError:
-        return [str(lang).lower() for lang in LANGUAGES]
-
-def get_language_name_from_code(lang_code):
-    try:
-        inverted_languages = {v.lower(): k for k, v in LANGUAGES.items()}
-        return inverted_languages.get(lang_code.lower(), lang_code.upper()).capitalize()
-    except Exception:
-        return lang_code.upper()
-
 # --- Message Handlers ---
 
 @Client.on_message(filters.text & filters.incoming & filters.group & filters.regex(r'^(?!\/).*'))
@@ -223,12 +185,69 @@ async def next_page_cb(bot, query):
     await query.answer()
 
 
+def generate_main_buttons(files, offset, search_key):
+    """Generates the main list of file buttons with navigation and filters."""
+    btn = [
+        [
+            InlineKeyboardButton(
+                text=f"🧸 {file.get('size', 'N/A')} 🌷 {file.get('file_name', 'No Name')}",
+                callback_data=f"file#{file['file_id']}"
+            ),
+        ]
+        for file in files
+    ]
+    
+    # Insert Language and Quality buttons at the top
+    btn.insert(0, [
+        InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
+        InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
+    ])
+    
+    # Add pagination buttons
+    if offset:
+        btn.append([
+            InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
+        ])
+    else:
+        btn.append([InlineKeyboardButton(
+            text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
+
+    return btn
+
+def get_all_language_codes():
+    """Returns a list of all language codes in lowercase."""
+    try:
+        # Assuming LANGUAGES is a dict like {'English': 'eng', 'Hindi': 'hin'}
+        return [code.lower() for code in LANGUAGES.values()]
+    except AttributeError:
+        # Fallback if LANGUAGES is structured differently
+        return [str(lang).lower() for lang in LANGUAGES]
+
+def get_language_name_from_code(lang_code):
+    """Returns the full language name from its code."""
+    try:
+        inverted_languages = {v.lower(): k for k, v in LANGUAGES.items()}
+        # Default to uppercasing the code if not found
+        return inverted_languages.get(lang_code.lower(), lang_code.upper()).capitalize()
+    except Exception:
+        return lang_code.upper()
+        
+def get_all_quality_codes():
+    """Returns a list of all quality codes in lowercase."""
+    # Assuming QUALITIES is a list like ['480P', '720P', '1080P']
+    return [q.lower() for q in QUALITIES]
+
+# ---------------------------
+# Language Feature Handlers
+# ---------------------------
+
 @Client.on_callback_query(filters.regex(r"^languages#"))
 async def languages_cb_handler(client: Client, query: CallbackQuery):
+    """Displays the list of available language filters."""
     try:
         _, search_key = query.data.split("#")
     except ValueError:
-        return await query.answer("Invalid callback data structure.", show_alert=True)
+        return await query.answer("Iɴᴠᴀʟɪᴅ ᴄᴀʟʟʙᴀᴄᴋ ᴅᴀᴛᴀ sᴛʀᴜᴄᴛᴜʀᴇ.", show_alert=True)
 
     requested_user_id = int(search_key.split("_")[0])
     if query.from_user.id != requested_user_id:
@@ -243,6 +262,7 @@ async def languages_cb_handler(client: Client, query: CallbackQuery):
     items = list(LANGUAGES.items())
     btn = []
 
+    # Create language buttons, 2 per row
     for i in range(0, len(items), 2):
         name1, code1 = items[i]
         row = [InlineKeyboardButton(
@@ -259,21 +279,21 @@ async def languages_cb_handler(client: Client, query: CallbackQuery):
 
     btn.insert(0, [InlineKeyboardButton(
         text="⇊ ꜱᴇʟᴇᴄᴛ ʟᴀɴɢᴜᴀɢᴇ ⇊", callback_data="ident")])
-        
+            
     btn.append([InlineKeyboardButton(text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭",
-                     callback_data=f"next|{search_key}|0")])
+                             callback_data=f"next|{search_key}|0")])
 
     await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
     await query.answer()
-    
+        
 @Client.on_callback_query(filters.regex(r"^fl#"))
 async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
+    """Handles the application of a language filter."""
     try:
         _, lang_code, search_key = query.data.split("#")
     except ValueError:
         return await query.answer("Iɴᴠᴀʟɪᴅ ʟᴀɴɢᴜᴀɢᴇ ғɪʟᴛᴇʀ ᴅᴀᴛᴀ.", show_alert=True)
 
-    lower_lang_code = lang_code.lower()
     original_search_query = SEARCH_CACHE.get(search_key)
 
     if not original_search_query:
@@ -286,50 +306,66 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
             show_alert=True,
         )
 
+    lower_lang_code = lang_code.lower()
     search_words = original_search_query.lower().split()
     all_language_codes = get_all_language_codes()
-    cleaned_words = [word for word in search_words if word not in all_language_codes]
+
+    # **CRITICAL FIX**: Remove any existing language code to ensure only one is active.
+    # Base query now contains the original search terms PLUS any active quality filter.
+    base_query_words = [word for word in search_words if word not in all_language_codes]
     
-    if lower_lang_code not in cleaned_words:
-        cleaned_words.append(lower_lang_code)
-
-    new_filtered_search = " ".join(cleaned_words)
-  
-    selected_language_name = get_language_name_from_code(lower_lang_code)
-    alert_message_success = f"Yᴏᴜʀ ғɪʟᴇs ᴀʀᴇ ɴᴏᴡ ғɪʟᴛᴇʀᴇᴅ ᴛᴏ: {selected_language_name} Sᴜᴄᴄᴇsғᴜʟʟʏ✅ "
-
+    # Check if the requested language is already applied (for toggling off/back to base)
+    if lower_lang_code in search_words:
+        # Toggling off the language filter. The new search is just the base query.
+        new_filtered_search = " ".join(base_query_words)
+        selected_language_name = get_language_name_from_code(lower_lang_code)
+        alert_message_success = f"❌ Lᴀɴɢᴜᴀɢᴇ ғɪʟᴛᴇʀ ʀᴇᴍᴏᴠᴇᴅ: {selected_language_name} Sᴜᴄᴄᴇsғᴜʟʟʏ✅"
+    else:
+        # Applying a new language filter. Add it to the base query.
+        base_query_words.append(lower_lang_code)
+        new_filtered_search = " ".join(base_query_words)
+        selected_language_name = get_language_name_from_code(lower_lang_code)
+        alert_message_success = f"Yᴏᴜʀ ғɪʟᴇs ᴀʀᴇ ɴᴏᴡ ғɪʟᴛᴇʀᴇᴅ ᴛᴏ: {selected_language_name} Sᴜᴄᴄᴇsғᴜʟʟʏ✅ "
+    
     try:
-
         files, offset = await get_search_results(new_filtered_search, offset=0)
         
         if not files:
-            
+            # Revert to original search results if no files are found with the filter
             files_revert, offset_revert = await get_search_results(original_search_query, offset=0)
             revert_btn = generate_main_buttons(files_revert, offset_revert, search_key)
             
+            selected_language_name = get_language_name_from_code(lower_lang_code)
             await query.answer(
-                f"🚫Nᴏ Fɪʟᴇ Fᴏᴜɴᴅ Wɪᴛʜ Tʜɪs Lᴀɴɢᴜᴀɢᴇ {selected_language_name}. Bᴀᴄᴋ ʏᴏᴜʀ ᴏʀɪɢɪɴᴀʟ sᴇᴀʀᴄʜ ʀᴇsᴜʟᴛs.", 
+                f"🚫 Nᴏ Fɪʟᴇ Fᴏᴜɴᴅ Wɪᴛʜ Tʜɪs Lᴀɴɢᴜᴀɢᴇ {selected_language_name}. Bᴀᴄᴋ ᴛᴏ ᴏʀɪɢɪɴᴀʟ sᴇᴀʀᴄʜ ʀᴇsᴜʟᴛs.", 
                 show_alert=True
             )
 
             await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(revert_btn))
+            # Don't update SEARCH_CACHE here, keep the original query
             return
 
+        # Update the cache with the new filtered query
         SEARCH_CACHE.set(search_key, new_filtered_search)
         btn = generate_main_buttons(files, offset, search_key)
 
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
-        await query.answer(alert_message_success, show_alert=True) 
+        await query.answer(alert_message_success, show_alert=True)    
 
     except MessageNotModified:
         await query.answer(alert_message_success, show_alert=True)
         pass
     except Exception as e:
-        logger.exception(e) 
+        # logger.exception(e) # Use your logger
         await query.answer("Aɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴅᴜʀɪɴɢ ʟᴀɴɢᴜᴀɢᴇ sᴇᴀʀᴄʜ.", show_alert=True)
+
+# ---------------------------
+# Quality Feature Handlers
+# ---------------------------
 
 @Client.on_callback_query(filters.regex(r"^qualities#"))
 async def qualities_cb_handler(client: Client, query: CallbackQuery):
+    """Displays the list of available quality filters."""
     try:
         _, search_key = query.data.split("#")
     except ValueError:
@@ -349,6 +385,7 @@ async def qualities_cb_handler(client: Client, query: CallbackQuery):
 
     btn = []
     
+    # Create quality buttons, 2 per row
     for i in range(0, len(QUALITIES), 2):
         q1 = QUALITIES[i]
         row = [InlineKeyboardButton(
@@ -373,6 +410,7 @@ async def qualities_cb_handler(client: Client, query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^fq#"))
 async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
+    """Handles the application of a quality filter."""
     try:
         _, qual, search_key = query.data.split("#")
     except ValueError:
@@ -388,28 +426,29 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
     if query.from_user.id != requested_user_id:
         return await query.answer(f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...", show_alert=True)
 
-    search_list = original_search_query.lower().split()
     qual_lower = qual.lower()
+    search_words = original_search_query.lower().split()
+    all_quality_codes = get_all_quality_codes()
     
-    is_toggling_off = qual_lower in search_list
+    # **CRITICAL FIX**: Remove any existing quality code to ensure only one is active.
+    # Base query now contains the original search terms PLUS any active language filter.
+    base_query_words = [word for word in search_words if word not in all_quality_codes]
     
-    if is_toggling_off:
-        search_list.remove(qual_lower)
+    if qual_lower in search_words:
+        # Toggling off the quality filter. The new search is just the base query.
+        new_filtered_search = " ".join(base_query_words)
         alert_message = f"❌ Qᴜᴀʟɪᴛʏ ғɪʟᴛᴇʀ ʀᴇᴍᴏᴠᴇᴅ: {qual.upper()} Sᴜᴄᴄᴇsғᴜʟʟʏ✅"
-        
     else:
-        all_qualities_lower = [q.lower() for q in QUALITIES]
-        search_list = [word for word in search_list if word not in all_qualities_lower]
-        search_list.append(qual_lower)
+        # Applying a new quality filter. Add it to the base query.
+        base_query_words.append(qual_lower)
+        new_filtered_search = " ".join(base_query_words)
         alert_message = f"Yᴏᴜʀ ғɪʟᴇs ᴀʀᴇ ɴᴏᴡ ғɪʟᴛᴇʀᴇᴅ ᴛᴏ: {qual.upper()} Sᴜᴄᴄᴇsғᴜʟʟʏ✅"
             
-    new_filtered_search = " ".join(search_list)
-    
     try:
         files, offset = await get_search_results(new_filtered_search, offset=0)
         
         if not files:
-       
+        
             files_revert, offset_revert = await get_search_results(original_search_query, offset=0)
             revert_btn = generate_main_buttons(files_revert, offset_revert, search_key)
             
@@ -419,8 +458,10 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
             )
             
             await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(revert_btn))
+            # Don't update SEARCH_CACHE here, keep the original query
             return
 
+        # Update the cache with the new filtered query
         SEARCH_CACHE.set(search_key, new_filtered_search)
         btn = generate_main_buttons(files, offset, search_key)
 
@@ -431,9 +472,9 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
         await query.answer(alert_message, show_alert=True)
         pass
     except Exception as e:
-        logger.exception(e) 
+        # logger.exception(e) # Use your logger
         await query.answer("Aɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴅᴜʀɪɴɢ ᴏ̨ᴜᴀʟɪᴛʏ sᴇᴀʀᴄʜ.", show_alert=True)
-
+        
 ##############################################################################################################################################################################################################
 
         
