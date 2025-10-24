@@ -100,6 +100,21 @@ def get_all_language_codes():
     except AttributeError:
         # Fallback if LANGUAGES is structured differently or not a dict
         return [str(lang).lower() for lang in LANGUAGES]
+
+def get_language_name_from_code(lang_code):
+    """
+    Returns the full language name given its lowercase code.
+    It inverts the LANGUAGES dict for a code-to-name lookup.
+    """
+    try:
+        # Create an inverted map: {"code": "Name"}
+        inverted_languages = {v.lower(): k for k, v in LANGUAGES.items()}
+        # Get the name and capitalize it for a nice alert message
+        return inverted_languages.get(lang_code.lower(), lang_code.upper()).capitalize()
+    except Exception:
+        # Fallback to the code if lookup fails
+        return lang_code.upper()
+        
 # --- Message Handlers ---
 
 @Client.on_message(filters.text & filters.incoming & filters.group & filters.regex(r'^(?!\/).*'))
@@ -237,45 +252,69 @@ async def languages_cb_handler(client: Client, query: CallbackQuery):
         
     # Back button to main file list (page 1) - FIXED callback data
     btn.append([InlineKeyboardButton(text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭",
-                 callback_data=f"next|{search_key}|0")])
+                     callback_data=f"next|{search_key}|0")])
 
     await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
     await query.answer()
-
-
+    
 @Client.on_callback_query(filters.regex(r"^fl#"))
 async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
     try:
         _, lang_code, search_key = query.data.split("#")
     except ValueError:
         return await query.answer("Invalid language filter data.", show_alert=True)
+
+    # Convert code to lowercase once
+    lower_lang_code = lang_code.lower()
+    
+    # --- Retrieve Data and Check Permissions (Unchanged) ---
     original_search_query = SEARCH_CACHE.get(search_key)
     if not original_search_query:
         return await query.answer("Search expired or not found. Please try again.", show_alert=True)
+
     requested_user_id = int(search_key.split("_")[0])
     if query.from_user.id != requested_user_id:
         return await query.answer(
             f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
             show_alert=True,
         )
+
+    # --- Language Filtering Logic (Unchanged) ---
     search_words = original_search_query.lower().split()
     all_language_codes = get_all_language_codes()
+    
     cleaned_words = [word for word in search_words if word not in all_language_codes]
-    if lang_code.lower() not in cleaned_words: # Prevent double-adding the same code if logic fails
-        cleaned_words.append(lang_code.lower())
+    
+    # Append the newly selected language code
+    if lower_lang_code not in cleaned_words:
+        cleaned_words.append(lower_lang_code)
+
     search = " ".join(cleaned_words)
     SEARCH_CACHE.set(search_key, search)
-    try:
-        files, offset = await get_search_results(search, offset=0)
 
+    # --- NEW ALERT MESSAGE PREPARATION ---
+    # Get the full name for the alert
+    selected_language_name = get_language_name_from_code(lower_lang_code)
+    # The required alert message
+    alert_message = f"✅ Your files are now filtered to: {selected_language_name}." 
+
+    try:
+        # Get filtered results starting from page 1 (offset=0)
+        files, offset = await get_search_results(search, offset=0)
+        
         if not files:
-            await query.answer("🚫 𝗡𝗼 𝗙𝗶𝗹𝗲 𝗪𝗲𝗿𝗲 𝗙𝗼𝘂𝗻𝗱 🚫", show_alert=True)
-            # Revert to the language selection menu if no results are found
+            # If no files found, combine the filter alert and the "No files" message
+            await query.answer(
+                f"{alert_message}\n\n🚫 𝗡𝗼 𝗙𝗶𝗹𝗲 𝗪𝗲𝗿𝗲 𝗙𝗼𝘂𝗻𝗱 🚫 𝘄𝗶𝘁𝗵 𝘁𝗵𝗶𝘀 𝗹𝗮𝗻𝗴𝘂𝗮𝗴𝗲.", 
+                show_alert=True
+            )
+            # Revert to the language selection menu
             await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭", callback_data=f"next|{search_key}|0")]
             ]))
             return
 
+        # --- Button Generation (Unchanged) ---
         btn = [
             [
                 InlineKeyboardButton(
@@ -285,6 +324,7 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
             ]
             for file in files
         ]
+        
         btn.insert(0, [
             InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
             InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
@@ -298,14 +338,21 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
             btn.append([InlineKeyboardButton(
                 text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
 
+        # --- EXECUTE ACTIONS ---
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
+        
+        # Show the success alert AFTER the message is edited
+        await query.answer(alert_message, show_alert=True) 
+
     except MessageNotModified:
+        # If the message content/markup didn't change, still show the success alert
+        await query.answer(alert_message, show_alert=True)
         pass
     except Exception as e:
         print(f"Error in filter_languages_cb_handler: {e}")
         await query.answer("An error occurred during search.", show_alert=True)
     
-    await query.answer()
+# Assuming QUALITIES is a list of strings accessible here, e.g., ["720p", "1080p", "4k"]
 
 @Client.on_callback_query(filters.regex(r"^qualities#"))
 async def qualities_cb_handler(client: Client, query: CallbackQuery):
@@ -342,13 +389,15 @@ async def qualities_cb_handler(client: Client, query: CallbackQuery):
     btn.insert(0, [
         InlineKeyboardButton(text="⇊ ꜱᴇʟᴇᴄᴛ ǫᴜᴀʟɪᴛʏ ⇊", callback_data="ident")
     ])
+
+    # Back button to main file list (page 1)
     btn.append([
         InlineKeyboardButton(text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭",
                              callback_data=f"next|{search_key}|0")
     ])
 
     await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
-
+    await query.answer() # Keep this to close the initial "loading" state if any
 
 @Client.on_callback_query(filters.regex(r"^fq#"))
 async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
@@ -370,27 +419,50 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
     search_list = original_search_query.lower().split()
     qual_lower = qual.lower()
 
-    # Toggling logic (removes quality if present, adds if absent)
-    if qual_lower in search_list:
+    # Determine if we are adding or removing the quality
+    is_toggling_off = qual_lower in search_list
+    
+    # --- Quality Filtering Logic ---
+    if is_toggling_off:
         search_list.remove(qual_lower)
-    elif qual_lower != "homepage":
+        # Set the alert message for removal (toggling off)
+        alert_message = f"❌ Quality filter removed: **{qual.upper()}**."
+        
+    elif qual_lower != "homepage": # Should never be "homepage" based on button creation, but good check
+        # Get all quality codes to remove existing ones
         all_qualities_lower = [q.lower() for q in QUALITIES]
+        
+        # Filter out existing qualities (ensuring only ONE quality is active)
         search_list = [word for word in search_list if word not in all_qualities_lower]
+
+        # Add the new quality
         search_list.append(qual_lower)
+        
+        # Set the alert message for addition (toggling on)
+        alert_message = f"✅ Your search is now filtered to: **{qual.upper()}**."
+            
     search = " ".join(search_list)
+
     # Update the cache with the current (potentially filtered) search query
     SEARCH_CACHE.set(search_key, search)
+
     try:
         # Get filtered results
         files, offset = await get_search_results(search, offset=0)
         
         if not files:
-            await query.answer("🚫 ɴᴏ ꜰɪʟᴇꜱ ᴡᴇʀᴇ ꜰᴏᴜɴᴅ 🚫", show_alert=True)
+            # If no files found, combine the filter alert and the "No files" message
+            await query.answer(
+                f"{alert_message}\n\n🚫 ɴᴏ ꜰɪʟᴇꜱ ᴡᴇʀᴇ ꜰᴏᴜɴᴅ 🚫 ᴡɪᴛʜ ᴛʜɪꜱ ǫᴜᴀʟɪᴛʏ.", 
+                show_alert=True
+            )
+            # Revert to the quality selection menu if no results are found
             await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭", callback_data=f"next|{search_key}|0")]
             ]))
             return
 
+        # --- Button Generation (Unchanged) ---
         btn = [
             [
                 InlineKeyboardButton(
@@ -400,26 +472,35 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
             ]
             for file in files
         ]
+        # Insert Language and Quality buttons
         btn.insert(0, [
             InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
             InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
         ])
+
         if offset:
+            # Pagination for filtered results
             btn.append([
                 InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
             ])
         else:
             btn.append([InlineKeyboardButton(
                 text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
-            
+
+        # Edit the message to show the filtered files
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
+        
+        # Show the success alert AFTER the message is edited
+        await query.answer(alert_message, show_alert=True)
+
     except MessageNotModified:
+        # If the message content/markup didn't change, still show the success alert
+        await query.answer(alert_message, show_alert=True)
         pass
     except Exception as e:
         print(f"Error in filter_qualities_cb_handler search: {e}")
         await query.answer("An error occurred during search.", show_alert=True)
-    
-    await query.answer()
+        
 ####################################################################################################################################################################################################
 
 @Client.on_callback_query()
