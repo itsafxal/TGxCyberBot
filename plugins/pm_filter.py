@@ -91,30 +91,45 @@ def get_file_caption(file_info):
         f_caption = f"{file_info.file_name}"
     
     return f_caption
+##############################################################################################################################################################################################################
 
+def generate_main_buttons(files, offset, search_key):
+    btn = [
+        [
+            InlineKeyboardButton(
+                text=f"🧸 {file.get('size', 'N/A')} 🌷 {file.get('file_name', 'No Name')}",
+                callback_data=f"file#{file['file_id']}"
+            ),
+        ]
+        for file in files
+    ]
+    btn.insert(0, [
+        InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
+        InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
+    ])
+    if offset:
+        btn.append([
+            InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
+        ])
+    else:
+        btn.append([InlineKeyboardButton(
+            text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
+
+    return btn
+    
 def get_all_language_codes():
-    """Returns a list of all language search terms (codes) from the LANGUAGES dict."""
-    # Assuming LANGUAGES is a dict: {"Name": "code"}
     try:
         return [code.lower() for code in LANGUAGES.values()]
     except AttributeError:
-        # Fallback if LANGUAGES is structured differently or not a dict
         return [str(lang).lower() for lang in LANGUAGES]
 
 def get_language_name_from_code(lang_code):
-    """
-    Returns the full language name given its lowercase code.
-    It inverts the LANGUAGES dict for a code-to-name lookup.
-    """
     try:
-        # Create an inverted map: {"code": "Name"}
         inverted_languages = {v.lower(): k for k, v in LANGUAGES.items()}
-        # Get the name and capitalize it for a nice alert message
         return inverted_languages.get(lang_code.lower(), lang_code.upper()).capitalize()
     except Exception:
-        # Fallback to the code if lookup fails
         return lang_code.upper()
-        
+
 # --- Message Handlers ---
 
 @Client.on_message(filters.text & filters.incoming & filters.group & filters.regex(r'^(?!\/).*'))
@@ -152,24 +167,23 @@ async def next_page_cb(bot, query):
         _, search_key, offset_str = query.data.split("|")
         offset = int(offset_str)
     except ValueError:
-        return await query.answer("Invalid pagination data.", show_alert=True)
+        return await query.answer("Iɴᴠᴀʟɪᴅ ᴘᴀɢɪɴᴀᴛɪᴏɴ ᴅᴀᴛᴀ.", show_alert=True)
     
     cyber = query.from_user.mention
     req = SEARCH_CACHE.get(search_key)
 
     if not req:
-        await query.answer("🔁 Search expired or not found.", show_alert=True)
+        await query.answer("🔁 Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ Pʟᴇᴀsᴇ Sᴇᴀʀᴄʜ Aɢᴀɪɴ 😇", show_alert=True)
         return
 
-    # Permission check
     requested_user_id = int(search_key.split("_")[0])
     if query.from_user.id != requested_user_id:
-        return await query.answer("✋ This is not for you! Please make your own search.", show_alert=True)
+        return await query.answer("✋ Tʜɪs ɪs ɴᴏᴛ ғᴏʀ ʏᴏᴜ! Pʟᴇᴀsᴇ ᴍᴀᴋᴇ ʏᴏᴜʀ ᴏᴡɴ sᴇᴀʀᴄʜ.", show_alert=True)
 
     files, next_offset = await get_search_results(req, offset=offset)
 
     if not files:
-        return await query.answer("No more results found.", show_alert=True)
+        return await query.answer("🚫Nᴏ ᴍᴏʀᴇ ʀᴇsᴜʟᴛs ғᴏᴜɴᴅ 🚫", show_alert=True)
 
     btn = [
         [
@@ -181,15 +195,14 @@ async def next_page_cb(bot, query):
         for file in files
     ]
 
-    # Re-insert filter buttons (FIXED: Using search_key)
     btn.insert(0, [
             InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
             InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
         ])
 
     nav_buttons = []
-    if offset > 0: # Check if we can go back
-        # Calculate the starting offset for the previous page
+    if offset > 0:
+        
         prev_offset = max(0, offset - MAX_FILES) 
         nav_buttons.append(InlineKeyboardButton("⏮ 𝗕𝗮𝗰𝗸", callback_data=f"next|{search_key}|{prev_offset}"))
         
@@ -202,7 +215,7 @@ async def next_page_cb(bot, query):
     try:
         current_page = (offset // MAX_FILES) + 1
         await query.edit_message_text(
-            f"𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {req}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `{current_page}`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞ɴ 15 𝙈𝙞ɴS..❗️\n ©ᵀᵉˢˢᵃ🗡️",
+            f"𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {req}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `{current_page}`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞ɴ 15 𝙈𝙞ɴS..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️",
             reply_markup=InlineKeyboardMarkup(btn)
         )
     except MessageNotModified:
@@ -217,7 +230,6 @@ async def languages_cb_handler(client: Client, query: CallbackQuery):
     except ValueError:
         return await query.answer("Invalid callback data structure.", show_alert=True)
 
-    # Permission check (Cleaned up the logic)
     requested_user_id = int(search_key.split("_")[0])
     if query.from_user.id != requested_user_id:
         return await query.answer(
@@ -225,14 +237,12 @@ async def languages_cb_handler(client: Client, query: CallbackQuery):
             show_alert=True,
         )
 
-    # Retrieve query just to ensure it's valid
     if not SEARCH_CACHE.get(search_key):
-        return await query.answer("Search expired or not found. Please try again.", show_alert=True)
+        return await query.answer("Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ. 🔰", show_alert=True)
 
     items = list(LANGUAGES.items())
     btn = []
 
-    # Create language buttons in two columns
     for i in range(0, len(items), 2):
         name1, code1 = items[i]
         row = [InlineKeyboardButton(
@@ -250,7 +260,6 @@ async def languages_cb_handler(client: Client, query: CallbackQuery):
     btn.insert(0, [InlineKeyboardButton(
         text="⇊ ꜱᴇʟᴇᴄᴛ ʟᴀɴɢᴜᴀɢᴇ ⇊", callback_data="ident")])
         
-    # Back button to main file list (page 1) - FIXED callback data
     btn.append([InlineKeyboardButton(text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭",
                      callback_data=f"next|{search_key}|0")])
 
@@ -262,15 +271,13 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
     try:
         _, lang_code, search_key = query.data.split("#")
     except ValueError:
-        return await query.answer("Invalid language filter data.", show_alert=True)
+        return await query.answer("Iɴᴠᴀʟɪᴅ ʟᴀɴɢᴜᴀɢᴇ ғɪʟᴛᴇʀ ᴅᴀᴛᴀ.", show_alert=True)
 
-    # Convert code to lowercase once
     lower_lang_code = lang_code.lower()
-    
-    # --- Retrieve Data and Check Permissions (Unchanged) ---
     original_search_query = SEARCH_CACHE.get(search_key)
+
     if not original_search_query:
-        return await query.answer("Search expired or not found. Please try again.", show_alert=True)
+        return await query.answer("Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ. 🔰", show_alert=True)
 
     requested_user_id = int(search_key.split("_")[0])
     if query.from_user.id != requested_user_id:
@@ -279,93 +286,59 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
             show_alert=True,
         )
 
-    # --- Language Filtering Logic (Unchanged) ---
     search_words = original_search_query.lower().split()
     all_language_codes = get_all_language_codes()
-    
     cleaned_words = [word for word in search_words if word not in all_language_codes]
     
-    # Append the newly selected language code
     if lower_lang_code not in cleaned_words:
         cleaned_words.append(lower_lang_code)
 
-    search = " ".join(cleaned_words)
-    SEARCH_CACHE.set(search_key, search)
-
-    # --- NEW ALERT MESSAGE PREPARATION ---
-    # Get the full name for the alert
+    new_filtered_search = " ".join(cleaned_words)
+  
     selected_language_name = get_language_name_from_code(lower_lang_code)
-    # The required alert message
-    alert_message = f"✅ Your files are now filtered to: {selected_language_name}." 
+    alert_message_success = f"Yᴏᴜʀ ғɪʟᴇs ᴀʀᴇ ɴᴏᴡ ғɪʟᴛᴇʀᴇᴅ ᴛᴏ: {selected_language_name} Sᴜᴄᴄᴇsғᴜʟʟʏ✅ "
 
     try:
-        # Get filtered results starting from page 1 (offset=0)
-        files, offset = await get_search_results(search, offset=0)
+
+        files, offset = await get_search_results(new_filtered_search, offset=0)
         
         if not files:
-            # If no files found, combine the filter alert and the "No files" message
+            
+            files_revert, offset_revert = await get_search_results(original_search_query, offset=0)
+            revert_btn = generate_main_buttons(files_revert, offset_revert, search_key)
+            
             await query.answer(
-                f"{alert_message}\n\n🚫 𝗡𝗼 𝗙𝗶𝗹𝗲 𝗪𝗲𝗿𝗲 𝗙𝗼𝘂𝗻𝗱 🚫 𝘄𝗶𝘁𝗵 𝘁𝗵𝗶𝘀 𝗹𝗮𝗻𝗴𝘂𝗮𝗴𝗲.", 
+                f"{alert_message_success}\n\n🚫Nᴏ Fɪʟᴇ Fᴏᴜɴᴅ Wɪᴛʜ Tʜɪs Lᴀɴɢᴜᴀɢᴇ. Bᴀᴄᴋ ʏᴏᴜʀ ᴏʀɪɢɪɴᴀʟ sᴇᴀʀᴄʜ ʀᴇsᴜʟᴛs.", 
                 show_alert=True
             )
-            # Revert to the language selection menu
-            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭", callback_data=f"next|{search_key}|0")]
-            ]))
+
+            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(revert_btn))
             return
 
-        # --- Button Generation (Unchanged) ---
-        btn = [
-            [
-                InlineKeyboardButton(
-                    text=f"🧸 {file['size']} 🌷 {file['file_name']}",
-                    callback_data=f"file#{file['file_id']}"
-                ),
-            ]
-            for file in files
-        ]
-        
-        btn.insert(0, [
-            InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
-            InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
-        ])
+        SEARCH_CACHE.set(search_key, new_filtered_search)
+        btn = generate_main_buttons(files, offset, search_key)
 
-        if offset:
-            btn.append([
-                InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
-            ])
-        else:
-            btn.append([InlineKeyboardButton(
-                text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
-
-        # --- EXECUTE ACTIONS ---
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
-        
-        # Show the success alert AFTER the message is edited
-        await query.answer(alert_message, show_alert=True) 
+        await query.answer(alert_message_success, show_alert=True) 
 
     except MessageNotModified:
-        # If the message content/markup didn't change, still show the success alert
-        await query.answer(alert_message, show_alert=True)
+        await query.answer(alert_message_success, show_alert=True)
         pass
     except Exception as e:
-        print(f"Error in filter_languages_cb_handler: {e}")
-        await query.answer("An error occurred during search.", show_alert=True)
-    
-# Assuming QUALITIES is a list of strings accessible here, e.g., ["720p", "1080p", "4k"]
+        logger.exception(e) 
+        await query.answer("Aɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴅᴜʀɪɴɢ ʟᴀɴɢᴜᴀɢᴇ sᴇᴀʀᴄʜ.", show_alert=True)
 
 @Client.on_callback_query(filters.regex(r"^qualities#"))
 async def qualities_cb_handler(client: Client, query: CallbackQuery):
     try:
         _, search_key = query.data.split("#")
     except ValueError:
-        return await query.answer("Invalid callback data structure.", show_alert=True)
+        return await query.answer("Iɴᴠᴀʟɪᴅ ᴄᴀʟʟʙᴀᴄᴋ ᴅᴀᴛᴀ sᴛʀᴜᴄᴛᴜʀᴇ.", show_alert=True)
 
     original_search_query = SEARCH_CACHE.get(search_key)
     if not original_search_query:
-        return await query.answer("Search expired or not found. Please try again.", show_alert=True)
+        return await query.answer("Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ. 🔰", show_alert=True)
 
-    # Check permission
     requested_user_id = int(search_key.split("_")[0])
     if query.from_user.id != requested_user_id:
         return await query.answer(
@@ -375,7 +348,7 @@ async def qualities_cb_handler(client: Client, query: CallbackQuery):
         )
 
     btn = []
-    # Create quality filter buttons in two columns
+    
     for i in range(0, len(QUALITIES), 2):
         q1 = QUALITIES[i]
         row = [InlineKeyboardButton(
@@ -390,26 +363,25 @@ async def qualities_cb_handler(client: Client, query: CallbackQuery):
         InlineKeyboardButton(text="⇊ ꜱᴇʟᴇᴄᴛ ǫᴜᴀʟɪᴛʏ ⇊", callback_data="ident")
     ])
 
-    # Back button to main file list (page 1)
     btn.append([
         InlineKeyboardButton(text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭",
                              callback_data=f"next|{search_key}|0")
     ])
 
     await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
-    await query.answer() # Keep this to close the initial "loading" state if any
+    await query.answer()
 
 @Client.on_callback_query(filters.regex(r"^fq#"))
 async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
     try:
         _, qual, search_key = query.data.split("#")
     except ValueError:
-        return await query.answer("Invalid quality filter data.", show_alert=True)
+        return await query.answer("Iɴᴠᴀʟɪᴅ ᴏ̨ᴜᴀʟɪᴛʏ ғɪʟᴛᴇʀ ᴅᴀᴛᴀ.", show_alert=True)
 
     original_search_query = SEARCH_CACHE.get(search_key)
 
     if not original_search_query:
-        return await query.answer("Search expired or not found. Please try again.", show_alert=True)
+        return await query.answer("Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ. 🔰", show_alert=True)
 
     # Check permission
     requested_user_id = int(search_key.split("_")[0])
@@ -418,91 +390,53 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
 
     search_list = original_search_query.lower().split()
     qual_lower = qual.lower()
-
-    # Determine if we are adding or removing the quality
+    
     is_toggling_off = qual_lower in search_list
     
-    # --- Quality Filtering Logic ---
     if is_toggling_off:
         search_list.remove(qual_lower)
-        # Set the alert message for removal (toggling off)
-        alert_message = f"❌ Quality filter removed: **{qual.upper()}**."
+        alert_message = f"❌ Qᴜᴀʟɪᴛʏ ғɪʟᴛᴇʀ ʀᴇᴍᴏᴠᴇᴅ: {qual.upper()} Sᴜᴄᴄᴇsғᴜʟʟʏ✅"
         
-    elif qual_lower != "homepage": # Should never be "homepage" based on button creation, but good check
-        # Get all quality codes to remove existing ones
+    else:
         all_qualities_lower = [q.lower() for q in QUALITIES]
-        
-        # Filter out existing qualities (ensuring only ONE quality is active)
         search_list = [word for word in search_list if word not in all_qualities_lower]
-
-        # Add the new quality
         search_list.append(qual_lower)
-        
-        # Set the alert message for addition (toggling on)
-        alert_message = f"✅ Your search is now filtered to: **{qual.upper()}**."
+        alert_message = f"Yᴏᴜʀ ғɪʟᴇs ᴀʀᴇ ɴᴏᴡ ғɪʟᴛᴇʀᴇᴅ ᴛᴏ: {qual.upper()} Sᴜᴄᴄᴇsғᴜʟʟʏ✅"
             
-    search = " ".join(search_list)
-
-    # Update the cache with the current (potentially filtered) search query
-    SEARCH_CACHE.set(search_key, search)
-
+    new_filtered_search = " ".join(search_list)
+    
     try:
-        # Get filtered results
-        files, offset = await get_search_results(search, offset=0)
+        files, offset = await get_search_results(new_filtered_search, offset=0)
         
         if not files:
-            # If no files found, combine the filter alert and the "No files" message
+       
+            files_revert, offset_revert = await get_search_results(original_search_query, offset=0)
+            revert_btn = generate_main_buttons(files_revert, offset_revert, search_key)
+            
             await query.answer(
-                f"{alert_message}\n\n🚫 ɴᴏ ꜰɪʟᴇꜱ ᴡᴇʀᴇ ꜰᴏᴜɴᴅ 🚫 ᴡɪᴛʜ ᴛʜɪꜱ ǫᴜᴀʟɪᴛʏ.", 
+                f"{alert_message}\n\n🚫 ɴᴏ ꜰɪʟᴇꜱ ᴡᴇʀᴇ ꜰᴏᴜɴᴅ ᴡɪᴛʜ ᴛʜɪꜱ ǫᴜᴀʟɪᴛʏ. Bᴀᴄᴋ ᴛᴏ ᴏʀɪɢɪɴᴀʟ sᴇᴀʀᴄʜ ʀᴇsᴜʟᴛs.", 
                 show_alert=True
             )
-            # Revert to the quality selection menu if no results are found
-            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭", callback_data=f"next|{search_key}|0")]
-            ]))
+            
+            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(revert_btn))
             return
 
-        # --- Button Generation (Unchanged) ---
-        btn = [
-            [
-                InlineKeyboardButton(
-                    text=f"🧸 {file['size']} 🌷 {file['file_name']}",
-                    callback_data=f"file#{file['file_id']}"
-                ),
-            ]
-            for file in files
-        ]
-        # Insert Language and Quality buttons
-        btn.insert(0, [
-            InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
-            InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
-        ])
+        SEARCH_CACHE.set(search_key, new_filtered_search)
+        btn = generate_main_buttons(files, offset, search_key)
 
-        if offset:
-            # Pagination for filtered results
-            btn.append([
-                InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
-            ])
-        else:
-            btn.append([InlineKeyboardButton(
-                text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
-
-        # Edit the message to show the filtered files
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
-        
-        # Show the success alert AFTER the message is edited
         await query.answer(alert_message, show_alert=True)
 
     except MessageNotModified:
-        # If the message content/markup didn't change, still show the success alert
         await query.answer(alert_message, show_alert=True)
         pass
     except Exception as e:
-        print(f"Error in filter_qualities_cb_handler search: {e}")
-        await query.answer("An error occurred during search.", show_alert=True)
-        
-####################################################################################################################################################################################################
+        logger.exception(e) 
+        await query.answer("Aɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴅᴜʀɪɴɢ ᴏ̨ᴜᴀʟɪᴛʏ sᴇᴀʀᴄʜ.", show_alert=True)
 
+##############################################################################################################################################################################################################
+
+        
 @Client.on_callback_query()
 async def main_cb_handler(client: Client, query: CallbackQuery):
     data = query.data
@@ -712,7 +646,7 @@ async def auto_filter(client, message):
         btn.append([
             InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
         ])
-    caption = f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣S..❗️\n ©ᵀᵉˢˢᵃ🗡️"
+    caption = f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣S..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️"
     await message.reply_text(
         caption,
         reply_markup=InlineKeyboardMarkup(btn),
@@ -750,7 +684,7 @@ async def pm_auto_filter(client, message):
         btn.append([
             InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
         ])
-    caption = f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣S..❗️\n ©ᵀᵉˢˢᵃ🗡️"
+    caption = f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣S..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️"
     await message.reply_text(
         caption,
         reply_markup=InlineKeyboardMarkup(btn),
