@@ -308,7 +308,7 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
             revert_btn = generate_main_buttons(files_revert, offset_revert, search_key)
             
             await query.answer(
-                f"{alert_message_success}\n\n🚫Nᴏ Fɪʟᴇ Fᴏᴜɴᴅ Wɪᴛʜ Tʜɪs Lᴀɴɢᴜᴀɢᴇ. Bᴀᴄᴋ ʏᴏᴜʀ ᴏʀɪɢɪɴᴀʟ sᴇᴀʀᴄʜ ʀᴇsᴜʟᴛs.", 
+                f"🚫Nᴏ Fɪʟᴇ Fᴏᴜɴᴅ Wɪᴛʜ Tʜɪs Lᴀɴɢᴜᴀɢᴇ {selected_language_name}. Bᴀᴄᴋ ʏᴏᴜʀ ᴏʀɪɢɪɴᴀʟ sᴇᴀʀᴄʜ ʀᴇsᴜʟᴛs.", 
                 show_alert=True
             )
 
@@ -414,7 +414,7 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
             revert_btn = generate_main_buttons(files_revert, offset_revert, search_key)
             
             await query.answer(
-                f"{alert_message}\n\n🚫 ɴᴏ ꜰɪʟᴇꜱ ᴡᴇʀᴇ ꜰᴏᴜɴᴅ ᴡɪᴛʜ ᴛʜɪꜱ ǫᴜᴀʟɪᴛʏ. Bᴀᴄᴋ ᴛᴏ ᴏʀɪɢɪɴᴀʟ sᴇᴀʀᴄʜ ʀᴇsᴜʟᴛs.", 
+                f"🚫 ɴᴏ ꜰɪʟᴇꜱ ᴡᴇʀᴇ ꜰᴏᴜɴᴅ ᴡɪᴛʜ ᴛʜɪꜱ ǫᴜᴀʟɪᴛʏ {qual.upper()}. Bᴀᴄᴋ ᴛᴏ ᴏʀɪɢɪɴᴀʟ sᴇᴀʀᴄʜ ʀᴇsᴜʟᴛs.", 
                 show_alert=True
             )
             
