@@ -238,6 +238,95 @@ async def get_search_results(search_query: str, offset: int = 0):
         offset + len(rows)
     )
 
+async def save_files_sql_batch(media_list: list) -> tuple:
+    """
+    Batch-save media objects to SQLite.
+    Returns (saved_count, duplicate_count, error_count).
+
+    Fast, safe, WAL-optimized INSERT OR IGNORE behavior.
+    """
+    if not media_list:
+        return 0, 0, 0
+
+    db = get_aiosqlite_connection()
+    date_saved = datetime.datetime.now(pytz.utc)
+
+    # Regex used in your media cleanup logic
+    cleanup_regex = re.compile(
+        r"(_|\+\s|\-|\.|\+|\[MM\]\s|\[MM\]_|\@TvSeriesBay|\@Cinema\sCompany|\@Cinema_Company|"
+        r"\@CC_|\@CC|\@MM_New|\@MM_Linkz|\@MOVIEHUNT|\@CL|\@FBM|\@CKMSERIES|www_DVDWap_Com_|"
+        r"MLM|\@WMR|\[CF\]\s|\[CF\]|\@IndianMoviez|\@tamil_mm|\@infotainmentmedia|\@trolldcompany|"
+        r"\@Rarefilms|\@yamandanmovies|\[YM\]|\@Mallu_Movies|\@YTSLT|\@DailyMovieZhunt|\@I_M_D_B|"
+        r"\@CC_All|\@PM_Old|Dvdworld|\[KMH\]|\@FBM_HW|\@Film_Kottaka|\@CC_X265|"
+        r"\@CelluloidCineClub|\@cinemaheist|\@telugu_moviez|\@CR_Rockers|\@CCineClub|KC_|\[KC\]|\[AML\])"
+    )
+
+    pattern_tv = re.compile(
+        r'(?<!\w)(?:s|season)[\s._-]*?(\d{1,2})[\s._-]*?(?:e|ep|episode)[\s._-]*?(\d{1,2})(?!\d)',
+        re.IGNORECASE
+    )
+
+    rows = []
+
+    for media in media_list:
+        file_id, file_ref = unpack_new_file_id(media.file_id)
+        caption = getattr(media, "caption", str(media.file_name))
+        original_file_name = caption
+
+        # Detect SxxExx
+        match = pattern_tv.search(original_file_name)
+        if match:
+            season = int(match.group(1))
+            ep = int(match.group(2))
+            prefix = f"[S{season:02d} EP{ep:02d}]"
+            processed_name = f"{prefix} {media.file_name}"
+        else:
+            processed_name = media.file_name
+
+        cleaned_name = cleanup_regex.sub(" ", processed_name).strip()
+
+        rows.append(
+            (
+                file_id,
+                file_ref,
+                cleaned_name,
+                media.file_size,
+                get_size(media.file_size),
+                media.file_type,
+                media.mime_type,
+                caption,
+                date_saved
+            )
+        )
+
+    saved_count = 0
+    duplicate_count = 0
+    error_count = 0
+
+    try:
+        await db.execute("BEGIN;")
+        cursor = await db.executemany(
+            """
+            INSERT OR IGNORE INTO media
+            (file_id, file_ref, file_name, file_size, size, file_type, mime_type, caption, date_saved)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows
+        )
+        await db.commit()
+
+        # SQLite rowcount for INSERT OR IGNORE is not accurate per-row,
+        # but the safe method is:
+        saved_count = cursor.rowcount if cursor.rowcount != -1 else len(rows)
+
+        duplicate_count = len(rows) - saved_count
+
+    except Exception as e:
+        await db.rollback()
+        logging.error(f"Batch insert error: {e}", exc_info=True)
+        error_count = len(rows)
+
+    return saved_count, duplicate_count, error_count
 
 async def save_file_sql(media):
     db = get_aiosqlite_connection()
