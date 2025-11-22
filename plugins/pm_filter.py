@@ -1,3 +1,4 @@
+
 import asyncio
 import re
 import ast
@@ -20,7 +21,6 @@ from database.gfilters_mdb import find_gfilter, get_gfilters
 from info import ADMINS, CUSTOM_FILE_CAPTION, AUTO_DEL, MAX_FILES
 from sql.db import get_search_results, delete_file_sql
 from utils import get_size, temp, is_requested_one, is_requested_two, add_auto_delete_message
-from rapidfuzz import process
 
 # --- Configuration ---
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -92,30 +92,7 @@ def get_file_caption(file_info):
         f_caption = f"{file_info.file_name}"
     
     return f_caption
-
-async def get_fuzzy_suggestions(query, limit=5):
-    """Returns RapidFuzz-based best matching file_name suggestions."""
-    try:
-        # Fetch only names for fuzzy match (lightweight)
-        suggested_docs = await Media2.collection.find({}, {"file_name": 1}).to_list(length=None)
-        names_db2 = [doc["file_name"] for doc in suggested_docs]
-
-        suggested_docs2 = await Media3.collection.find({}, {"file_name": 1}).to_list(length=None)
-        names_db3 = [doc["file_name"] for doc in suggested_docs2]
-
-        all_names = list(set(names_db2 + names_db3))  # merge unique
-
-        # RapidFuzz matching
-        results = process.extract(query, all_names, limit=limit)
-
-        # Return only good matches above score threshold
-        suggestions = [name for name, score, idx in results if score > 50]
-        return suggestions
     
-    except Exception as e:
-        print("Fuzzy error:", e)
-        return []
-        
 # --- Message Handlers ---
 
 @Client.on_message(filters.text & filters.incoming & filters.group & filters.regex(r'^(?!\/).*'))
@@ -125,13 +102,9 @@ async def auto_filter_handler(client, message):
     if not await global_filters(client, message):
         await auto_filter(client, message)
 
-@Client.on_message(filters.private & filters.incoming & ~filters.forwarded)
+@Client.on_message(filters.private & filters.text & filters.incoming & filters.regex(r'^(?!\/).*') & ~filters.forwarded)
 async def auto_filter_pm_handler(client, message):
-
-    if not message.text:   # FIX: prevent NoneType.error
-        return
-    if message.text.startswith("/"):
-        return
+    """Handles non-command messages in private chat."""
     if not temp.AUTO_FILTER: 
         return
     if re.search(r'(?im)(?:https?://|www\.|t\.me/|telegram\.dog/)\S+|@[a-z0-9_]{5,32}\b', message.text):
@@ -502,45 +475,7 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
     except Exception as e:
         # logger.exception(e) # Use your logger
         await query.answer("Aɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴅᴜʀɪɴɢ ᴏ̨ᴜᴀʟɪᴛʏ sᴇᴀʀᴄʜ.", show_alert=True)
-
-
-@Client.on_callback_query(filters.regex(r"^suggest#"))
-async def suggested_query_handler(client, query):
-    _, suggestion = query.data.split("#")
-
-    user = query.from_user.mention
-    search = suggestion
-    search_key = f"{query.from_user.id}_{query.message.id}"
-
-    files, offset = await get_search_results(search, offset=0)
-    if not files:
-        return await query.answer("Still no files found.", show_alert=True)
-
-    # generate buttons same as auto_filter
-    btn = [
-        [InlineKeyboardButton(
-            text=f"🧸 {file['size']} 🌷 {file['file_name']}",
-            callback_data=f"file#{file['file_id']}"
-        )]
-        for file in files
-    ]
-
-    btn.insert(0, [
-        InlineKeyboardButton(text="📮Languages", callback_data=f"languages#{search_key}"),
-        InlineKeyboardButton(text="Quality 🎁", callback_data=f"qualities#{search_key}")
-    ])
-
-    if offset:
-        btn.append([InlineKeyboardButton("Next ⏭", callback_data=f"next|{search_key}|{offset}")])
-
-    SEARCH_CACHE.set(search_key, search)
-
-    await query.message.edit_text(
-        f"Result for suggestion: `{search}`",
-        reply_markup=InlineKeyboardMarkup(btn)
-    )
-    await query.answer()
-
+        
 ##############################################################################################################################################################################################################
 
         
@@ -730,22 +665,10 @@ async def auto_filter(client, message):
         return
     files, offset = await get_search_results(search, offset=0)
     if not files:
-        suggestions = await get_fuzzy_suggestions(search)
-        if suggestions:
-            keyboard = [
-                [InlineKeyboardButton(text=s, callback_data=f"suggest#{s}")]
-                for s in suggestions
-            ]
-            await message.reply(
-                f"❌ No exact results found.\n\n🔍 **Did you mean?**",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                quote=True 
-            )
-        else:
-            await message.reply(
-                f"Hᴇʏ {cyber} 💫,\nNᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ RᴇʟᴇᴇsEᴅ.✨",
-                quote=True
-            )
+        await message.reply(
+            f"Hᴇʏ {cyber} 💫,\nNᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ RᴇʟᴇᴇsEᴅ.✨",
+            quote=True
+        )
         return
     search_key = f"{message.from_user.id}_{message.id}"
     btn = [
@@ -780,22 +703,10 @@ async def pm_auto_filter(client, message):
         return
     files, offset = await get_search_results(search, offset=0)
     if not files:
-        suggestions = await get_fuzzy_suggestions(search)
-        if suggestions:
-            keyboard = [
-                [InlineKeyboardButton(text=s, callback_data=f"suggest#{s}")]
-                for s in suggestions
-            ]
-            await message.reply(
-                f"❌ No exact results found.\n\n🔍 **Did you mean?**",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                quote=True 
-            )
-        else:
-            await message.reply(
-                f"Hᴇʏ {cyber} 💫,\nNᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ RᴇʟᴇᴇsEᴅ.✨",
-                quote=True
-            )
+        await message.reply(
+            f"Hᴇʏ {cyber} 💫,\nNᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ RᴇʟᴇᴇsEᴅ.✨",
+            quote=True
+        )
         return
     search_key = f"{message.from_user.id}_{message.id}"
     btn = [
