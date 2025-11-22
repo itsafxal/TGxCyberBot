@@ -6,6 +6,7 @@ import psutil
 import time
 import traceback
 import uvloop
+from functools import partial
 
 from pyrogram import Client, __version__ as pyrogram_version, utils as pyroutils
 from pyrogram.raw.all import layer as pyrogram_layer
@@ -14,6 +15,9 @@ from info import SESSION, API_ID, API_HASH, BOT_TOKEN, LOG_STR, REQ_CHANNEL1, RE
 from utils import temp, load_datas, delete_messages_loop
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from plugins.index import motor_col_general, index_files_to_db
+
+# Use the migration module you asked to keep
+from sql.db_final import migrate_to_sql
 
 uvloop.install()
 
@@ -24,7 +28,8 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
 logging.getLogger('apscheduler').setLevel(logging.WARNING)
-logging.getLogger("asyncio").setLevel(logging.CRITICAL -1)
+logging.getLogger("asyncio").setLevel(logging.CRITICAL - 1)
+
 
 class PremiumLogFormatter(logging.Formatter):
     FORMATS = {
@@ -40,9 +45,11 @@ class PremiumLogFormatter(logging.Formatter):
         formatter = logging.Formatter(log_fmt, datefmt='%Y-%m-%d %H:%M:%S')
         return formatter.format(record)
 
+
 for handler in logger.handlers:
     if isinstance(handler, logging.StreamHandler):
         handler.setFormatter(PremiumLogFormatter())
+
 
 class Bot(Client):
     def __init__(self):
@@ -99,12 +106,15 @@ class Bot(Client):
                 else:
                     logger.debug(f"{ch_key} not configured. Skipping invite link creation.")
 
-            asyncio.create_task(self.safe_loop(delete_messages_loop(self)), name="delete_messages_loop_task")
+            # Start background tasks safely.
+            # safe_loop will accept a callable (factory) plus args and repeatedly execute it inside a try/except loop.
+            asyncio.create_task(self.safe_loop(delete_messages_loop, self), name="delete_messages_loop_task")
             asyncio.create_task(self.resource_monitor(), name="resource_monitor")
 
-            from sql.db import migrate_to_sql
+            # Migration: add clear logs around the call so you can confirm it started
+            logger.info(">>> Calling migrate_to_sql() now...")
             await migrate_to_sql()
-            logger.info("Database migration check completed.")
+            logger.info(">>> migrate_to_sql() completed. Database migration check completed.")
 
             if OWNER_ID:
                 try:
@@ -151,12 +161,24 @@ class Bot(Client):
             logger.warning(f"Error disconnecting client: {e}")
         logger.info("Bot stopped cleanly.")
 
-    async def safe_loop(self, coro_func):
+    async def safe_loop(self, coro_factory, *args, **kwargs):
+        """
+        Execute a coroutine factory repeatedly, restarting it on exceptions.
+        coro_factory: callable that returns a coroutine when called with (*args, **kwargs).
+        Example usage: self.safe_loop(delete_messages_loop, self)
+        """
         while True:
             try:
-                await coro_func
+                # If coro_factory is already a coroutine object (rare), await it directly.
+                if asyncio.iscoroutine(coro_factory):
+                    await coro_factory
+                else:
+                    # Call the factory to get a fresh coroutine each iteration
+                    coro = coro_factory(*args, **kwargs)
+                    await coro
             except Exception as e:
-                logger.error(f"Loop error in {coro_func.__name__}: {e}", exc_info=True)
+                name = getattr(coro_factory, "__name__", str(coro_factory))
+                logger.error(f"Loop error in {name}: {e}", exc_info=True)
                 await asyncio.sleep(10)
 
     async def resource_monitor(self):
@@ -164,15 +186,19 @@ class Bot(Client):
             try:
                 process = psutil.Process(os.getpid())
                 mem = process.memory_info().rss / (1024 ** 2)
-                cpu = process.cpu_percent()
+                # cpu_percent with no interval returns last measured value; call once to update
+                cpu = process.cpu_percent(interval=None)
                 logger.info(f"Memory: {mem:.2f} MB | CPU: {cpu:.2f}%")
                 await asyncio.sleep(3600)
             except Exception as e:
                 logger.warning(f"Resource monitor error: {e}")
                 await asyncio.sleep(60)
 
+
 def handle_exception(loop, context):
-    logger.critical(f"Global error: {context['message']}", exc_info=context.get("exception"))
+    message = context.get("message") or context.get("exception") or "Unknown"
+    logger.critical(f"Global error: {message}", exc_info=context.get("exception"))
+
 
 loop = asyncio.get_event_loop()
 loop.set_exception_handler(handle_exception)
@@ -183,4 +209,3 @@ try:
     app.run()
 except Exception as e:
     logger.critical(f"Bot crashed: {e}", exc_info=True)
-        
