@@ -125,9 +125,13 @@ async def auto_filter_handler(client, message):
     if not await global_filters(client, message):
         await auto_filter(client, message)
 
-@Client.on_message(filters.private & filters.text & filters.incoming & filters.regex(r'^(?!\/).*') & ~filters.forwarded)
+@Client.on_message(filters.private & filters.incoming & ~filters.forwarded)
 async def auto_filter_pm_handler(client, message):
-    """Handles non-command messages in private chat."""
+
+    if not message.text:   # FIX: prevent NoneType.error
+        return
+    if message.text.startswith("/"):
+        return
     if not temp.AUTO_FILTER: 
         return
     if re.search(r'(?im)(?:https?://|www\.|t\.me/|telegram\.dog/)\S+|@[a-z0-9_]{5,32}\b', message.text):
