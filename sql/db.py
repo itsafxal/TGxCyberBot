@@ -1,5 +1,3 @@
-# db_final.py — Atlas-safe, string-_id pagination migration + SQLite helpers
-# Generated for user; replaces previous sql/db.py migration with a robust solution
 
 import asyncio
 import logging
@@ -7,34 +5,26 @@ import aiosqlite
 import datetime
 import pytz
 import re
-from typing import Tuple, List, Optional, Any, Dict
+from collections import defaultdict
+from typing import Tuple, List, Optional
 
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo.errors import OperationFailure
 
-from info import (
-    DATABASE_URI2,
-    DATABASE_NAME,
-    DATABASE_URI3,
-    COLLECTION_NAME,
-    MAX_FILES,
-    BOT_TOKEN,
-)
+from info import DATABASE_URI2, DATABASE_NAME, DATABASE_URI3, COLLECTION_NAME, MAX_FILES, BOT_TOKEN
 from database.ia_filterdb import unpack_new_file_id
 from utils import get_size
 
-# -------------------- Configuration --------------------
+# --- Configuration ---
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Tuning parameters
-MONGO_PAGE_SIZE = 5000          # docs per page from Mongo
-PROGRESS_STEP = 50_000          # log progress every N inserted rows
-SQLITE_BATCH_INSERT = 5000      # group rows to insert together into SQLite
+# Optimization: Increased batch size for fewer DB calls
+BATCH_SIZE = 10000
+PROGRESS_STEP = 50000
 
+# --- Database Clients ---
 SQLITE_DB = f"media_{BOT_TOKEN}.sqlite3"
 
-# Mongo clients
 client2 = AsyncIOMotorClient(DATABASE_URI2)
 db2 = client2[DATABASE_NAME]
 
@@ -46,49 +36,77 @@ COLLECTIONS_TO_MIGRATE = [
     {"db": db2, "collection_name": COLLECTION_NAME},
 ]
 
-# Global aiosqlite connection manager
+# --- Global SQLite Connection Manager ---
 _global_aiosqlite_connection: Optional[aiosqlite.Connection] = None
 _connection_lock = asyncio.Lock()
 
-# -------------------- SQLite connection helpers --------------------
-async def init_aiosqlite_connection(db_path: str) -> aiosqlite.Connection:
+async def init_aiosqlite_connection(db_path: str):
+    """Initializes a single, reusable aiosqlite connection."""
     global _global_aiosqlite_connection
     async with _connection_lock:
         if _global_aiosqlite_connection is None:
             _global_aiosqlite_connection = await aiosqlite.connect(db_path)
-            # Pragmas tuned for bulk writes and acceptable durability
-            await _global_aiosqlite_connection.execute("PRAGMA journal_mode=WAL;")
-            await _global_aiosqlite_connection.execute("PRAGMA synchronous=NORMAL;")
-            await _global_aiosqlite_connection.execute("PRAGMA locking_mode=NORMAL;")
-            await _global_aiosqlite_connection.execute("PRAGMA foreign_keys=ON;")
-            await _global_aiosqlite_connection.commit()
-            logger.info(f"aiosqlite connection opened to {db_path}")
+            await _global_aiosqlite_connection.execute("PRAGMA foreign_keys = ON;")
+            logging.info(f"aiosqlite connection opened to {db_path}")
         return _global_aiosqlite_connection
 
-
 async def close_aiosqlite_connection():
+    """Closes the global aiosqlite connection."""
     global _global_aiosqlite_connection
     async with _connection_lock:
         if _global_aiosqlite_connection:
-            try:
-                await _global_aiosqlite_connection.close()
-                logger.info("aiosqlite connection closed.")
-            except Exception:
-                logger.exception("Error while closing aiosqlite connection.")
-            finally:
-                _global_aiosqlite_connection = None
-
+            await _global_aiosqlite_connection.close()
+            _global_aiosqlite_connection = None
+            logging.info("aiosqlite connection closed.")
 
 def get_aiosqlite_connection() -> aiosqlite.Connection:
+    """Gets the initialized aiosqlite connection, raising an error if not connected."""
     if _global_aiosqlite_connection is None:
         raise RuntimeError("aiosqlite connection is not initialized. Call init_aiosqlite_connection first.")
     return _global_aiosqlite_connection
 
+# --- Helper Functions ---
+async def check_table_exists(table_name: str) -> bool:
+    """Checks if a table exists in the SQLite database."""
+    db = get_aiosqlite_connection()
+    async with db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
+    ) as cursor:
+        return await cursor.fetchone() is not None
 
-# -------------------- SQLite helpers --------------------
-async def ensure_schema(sql_db: aiosqlite.Connection):
-    await sql_db.execute(
-        """
+async def check_data_exists(table_name: str) -> bool:
+    """Checks if a table contains any data."""
+    db = get_aiosqlite_connection()
+    async with db.execute(f"SELECT 1 FROM {table_name} LIMIT 1") as cursor:
+        return await cursor.fetchone() is not None
+
+# --- High-Speed Migration Functions ---
+
+async def set_sqlite_pragmas(db: aiosqlite.Connection):
+    """Sets optimal PRAGMA settings for fast bulk inserts."""
+    await db.execute("PRAGMA journal_mode = WAL;")
+    await db.execute("PRAGMA synchronous = NORMAL;")
+    await db.execute("PRAGMA locking_mode = EXCLUSIVE;")
+    await db.commit()
+    logging.info("🚀 Set fast PRAGMA settings for SQLite.")
+
+async def insert_batch_no_commit(db, batch):
+    """Inserts a batch of data without committing, for use within a transaction."""
+    await db.executemany("""
+        INSERT OR REPLACE INTO media (
+            file_id, file_ref, file_name, file_size, size,
+            file_type, mime_type, caption, date_saved
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, batch)
+
+async def migrate_to_sql():
+    """Performs a high-speed migration from MongoDB to SQLite."""
+    logging.info("🚀 Starting multi-database migration with high-speed optimizations...")
+    await init_aiosqlite_connection(SQLITE_DB)
+    sql_db = get_aiosqlite_connection()
+
+    # Create table if it doesn't exist
+    await sql_db.execute("""
         CREATE TABLE IF NOT EXISTS media (
             file_id TEXT PRIMARY KEY,
             file_ref TEXT,
@@ -100,119 +118,47 @@ async def ensure_schema(sql_db: aiosqlite.Connection):
             caption TEXT,
             date_saved TIMESTAMP
         )
-        """
-    )
+    """)
     await sql_db.execute("CREATE INDEX IF NOT EXISTS idx_date_saved ON media (date_saved);")
     await sql_db.commit()
 
+    # Apply performance settings for the migration
+    await set_sqlite_pragmas(sql_db)
 
-async def insert_rows_sql(sql_db: aiosqlite.Connection, rows: List[tuple]):
-    if not rows:
-        return 0
-    # insert in smaller chunks to avoid giant executemany calls on huge memory
-    total = 0
-    for i in range(0, len(rows), SQLITE_BATCH_INSERT):
-        chunk = rows[i : i + SQLITE_BATCH_INSERT]
-        try:
-            await sql_db.execute("BEGIN;")
-            await sql_db.executemany(
-                """
-                INSERT OR IGNORE INTO media (
-                    file_id, file_ref, file_name, file_size, size,
-                    file_type, mime_type, caption, date_saved
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                chunk,
-            )
-            await sql_db.commit()
-            total += len(chunk)
-        except Exception:
-            try:
-                await sql_db.rollback()
-            except Exception:
-                logger.exception("rollback failed after insert error")
-            logger.exception("Error while inserting chunk into SQLite (continuing)")
-    return total
+    data_exists_in_table = await check_data_exists("media")
+    if data_exists_in_table:
+        logging.warning("Migration note: Data already exists. New/updated columns may not be populated for old records.")
+    else:
+        logging.info("SQLite 'media' table is empty. Proceeding with full migration.")
 
-
-# -------------------- Migration: string _id safe pagination --------------------
-async def migrate_collection_string_id(
-    sql_db: aiosqlite.Connection,
-    collection,
-    collection_name: str,
-    db_name: str,
-    doc_count: Optional[int],
-) -> int:
-    """
-    Migrate a single Mongo collection where `_id` is a string generated by your app.
-
-    Strategy:
-      - We paginate by _id lexicographically: {_id: {"$gt": last_id}} with sort("_id", 1).
-      - Start last_id as empty string "" so the first page returns the smallest lexical _ids.
-      - Use .limit(MONGO_PAGE_SIZE) to avoid long-lived cursors. Atlas allows normal cursors.
-      - If a transient cursor error or network issue occurs, the loop restarts from last successfully processed _id.
-    """
-
-    projection = {
-        "file_ref": 1,
-        "file_name": 1,
-        "file_size": 1,
-        "size": 1,
-        "file_type": 1,
-        "mime_type": 1,
-        "caption": 1,
-        "date": 1,
-    }
-
-    total_saved = 0
-    last_id: str = ""  # empty string is less than any non-empty bson string in UTF-8 lexicographic order
-
-    consecutive_empty_pages = 0
-
-    while True:
-        query = {"_id": {"$gt": last_id}} if last_id != "" else {}
+    total_files_saved_across_all_sources = 0
+    for item in COLLECTIONS_TO_MIGRATE:
+        current_db = item["db"]
+        current_collection_name = item["collection_name"]
+        collection = current_db[current_collection_name]
+        logging.info(f"\nMigrating from MongoDB: '{current_db.name}', Collection: '{current_collection_name}'...")
 
         try:
-            cursor = collection.find(query, projection=projection).sort("_id", 1).limit(MONGO_PAGE_SIZE)
-            docs = await cursor.to_list(length=MONGO_PAGE_SIZE)
-        except OperationFailure as e:
-            # Sometimes Atlas will reject certain cursor options; retry after a short backoff
-            logger.warning(f"Mongo OperationFailure while reading {db_name}.{collection_name}: {e}. Retrying after 1s")
-            await asyncio.sleep(1)
-            continue
+            doc_count = await collection.count_documents({})
+            if doc_count == 0:
+                logging.warning(f"  Collection '{current_collection_name}' is EMPTY.")
+                continue
+            logging.info(f"  Found {doc_count} documents to migrate.")
         except Exception as e:
-            logger.exception(f"Mongo read error for {db_name}.{collection_name}: {e}")
-            break
+            logging.critical(f"  CRITICAL ERROR connecting to DB '{current_db.name}': {e}", exc_info=True)
+            continue
 
-        if not docs:
-            consecutive_empty_pages += 1
-            if consecutive_empty_pages > 2:
-                # after a couple of empty pages in a row, assume completion
-                break
-            else:
-                # small sleep and retry
-                await asyncio.sleep(0.1)
-                continue
+        # --- Begin a single transaction for the entire collection ---
+        await sql_db.execute("BEGIN;")
+        logging.info("  Transaction started.")
 
-        consecutive_empty_pages = 0
-
-        rows_to_insert: List[tuple] = []
-
-        for doc in docs:
-            _id = doc.get("_id")
-            if _id is None:
-                continue
-            # convert to string for SQLite storage
-            id_str = str(_id)
-
-            # update pagination marker using lexicographic order; last_id must be the last doc._id string
-            last_id = id_str
-
-            date_saved = doc.get("date") or datetime.datetime.now(pytz.utc)
-
-            rows_to_insert.append(
-                (
-                    id_str,
+        try:
+            cursor = collection.find({})
+            batch = []
+            total_saved_current_collection = 0
+            async for doc in cursor:
+                batch.append((
+                    str(doc.get("_id")),
                     doc.get("file_ref"),
                     doc.get("file_name"),
                     doc.get("file_size"),
@@ -220,226 +166,104 @@ async def migrate_collection_string_id(
                     doc.get("file_type"),
                     doc.get("mime_type"),
                     doc.get("caption"),
-                    date_saved,
-                )
-            )
+                    doc.get("date", datetime.datetime.now(pytz.utc))
+                ))
+                if len(batch) >= BATCH_SIZE:
+                    await insert_batch_no_commit(sql_db, batch)
+                    total_saved_current_collection += len(batch)
+                    batch = []
+                    if total_saved_current_collection % PROGRESS_STEP == 0:
+                        logging.info(f"    ...inserted {total_saved_current_collection} / {doc_count} files")
+            
+            # Insert the final, smaller batch if it exists
+            if batch:
+                await insert_batch_no_commit(sql_db, batch)
+                total_saved_current_collection += len(batch)
+            
+            # --- Commit the transaction once all documents are processed ---
+            await sql_db.commit()
+            logging.info("  Transaction committed successfully.")
 
-        # insert into sqlite
-        inserted = await insert_rows_sql(sql_db, rows_to_insert)
-        total_saved += inserted
+            logging.info(f"✅ Migration completed for '{current_collection_name}': {total_saved_current_collection} files saved.")
+            total_files_saved_across_all_sources += total_saved_current_collection
 
-        if total_saved and (total_saved % PROGRESS_STEP) == 0:
-            if doc_count:
-                pct = (total_saved / doc_count) * 100.0
-                logger.info(f"    ...inserted {total_saved} / {doc_count} files ({pct:.2f}%)")
-            else:
-                logger.info(f"    ...inserted {total_saved} files so far")
+        except Exception as e:
+            await sql_db.rollback() # Rollback on error to maintain data integrity
+            logging.error(f"  ❌ An error occurred during migration: {e}. Transaction has been rolled back.", exc_info=True)
 
-        # short yield
-        await asyncio.sleep(0)
-
-    logger.info(f"✅ Migration completed for '{collection_name}' in DB '{db_name}': {total_saved} files saved.")
-    return total_saved
-
-
-async def migrate_to_sql():
-    """
-    Top-level migration function. Iterates configured sources and migrates each.
-    """
-    logger.info("🚀 Starting Atlas-safe migration (string _id)...")
-
-    await init_aiosqlite_connection(SQLITE_DB)
-    sql_db = get_aiosqlite_connection()
-
-    await ensure_schema(sql_db)
-
-    data_exists = None
-    try:
-        async with sql_db.execute("SELECT 1 FROM media LIMIT 1") as cur:
-            data_exists = await cur.fetchone() is not None
-    except Exception:
-        data_exists = None
-
-    if data_exists:
-        logger.warning("Migration note: SQLite 'media' table already has data. New rows will be added if missing.")
-    else:
-        logger.info("SQLite 'media' table is empty. Proceeding with full migration.")
-
-    total_all = 0
-
-    for item in COLLECTIONS_TO_MIGRATE:
-        current_db = item["db"]
-        collection_name = item["collection_name"]
-        collection = current_db[collection_name]
-
-        logger.info(f"\nMigrating from MongoDB: '{current_db.name}', Collection: '{collection_name}'...")
-
-        doc_count: Optional[int] = None
-        try:
-            doc_count = await collection.count_documents({})
-            if doc_count == 0:
-                logger.warning(f"  Collection '{collection_name}' is EMPTY.")
-                continue
-            logger.info(f"  Found {doc_count} documents to migrate.")
-        except Exception:
-            logger.warning(f"  Could not get document count for {current_db.name}.{collection_name}; proceeding without count.")
-
-        try:
-            saved = await migrate_collection_string_id(sql_db, collection, collection_name, current_db.name, doc_count)
-            total_all += saved
-        except Exception:
-            logger.exception(f"Error migrating collection {collection_name}; continuing to next collection.")
-
-    logger.info(f"\n✨ Overall Migration Summary: {total_all} files saved across all specified sources.")
+    logging.info(f"\n✨ Overall Migration Summary: {total_files_saved_across_all_sources} files saved across all specified sources.")
 
 
-# -------------------- Batch save helper required by caller --------------------
-async def save_files_sql_batch(media_list: List[Any]) -> tuple:
-    """
-    Batch-save media objects to SQLite.
-    Returns (saved_count, duplicate_count, error_count).
+# --- Regular Bot Operation Functions ---
 
-    This mirrors the per-item save logic used by save_file_sql but is optimized
-    for bulk insertion using INSERT OR IGNORE.
-    """
-    if not media_list:
-        return 0, 0, 0
-
-    db = get_aiosqlite_connection()
-    date_saved = datetime.datetime.now(pytz.utc)
-
-    cleanup_regex = re.compile(
-        r"(_|\+\s|\-|\.|\+|\[MM\]\s|\[MM\]_|\@TvSeriesBay|\@Cinema\sCompany|\@Cinema_Company|\@CC_|\@CC|\@MM_New|\@MM_Linkz|\@MOVIEHUNT|\@CL|\@FBM|\@CKMSERIES|www_DVDWap_Com_|MLM|\@WMR|\[CF\]\s|\[CF\]|\@IndianMoviez|\@tamil_mm|\@infotainmentmedia|\@trolldcompany|\@Rarefilms|\@yamandanmovies|\[YM\]|\@Mallu_Movies|\@YTSLT|\@DailyMovieZhunt|\@I_M_D_B|\@CC_All|\@PM_Old|Dvdworld|\[KMH\]|\@FBM_HW|\@Film_Kottaka|\@CC_X265|\@CelluloidCineClub|\@cinemaheist|\@telugu_moviez|\@CR_Rockers|\@CCineClub|KC_|\[KC\]|\[AML\])",
-        re.IGNORECASE,
-    )
-
-    tv_pattern = re.compile(
-        r'(?<!\w)(?:s|season)[\s._-]*?(\d{1,2})[\s._-]*?(?:e|ep|episode)[\s._-]*?(\d{1,2})(?!\d)',
-        re.IGNORECASE,
-    )
-
-    rows: List[tuple] = []
-
-    for media in media_list:
-        try:
-            file_id, file_ref = unpack_new_file_id(media.file_id)
-        except Exception:
-            # Fallback: use raw media.file_id if unpack fails
-            file_id = str(getattr(media, "file_id", ""))
-            file_ref = None
-
-        caption = getattr(media, "caption", None) or str(getattr(media, "file_name", ""))
-        original_name = caption
-
-        match = tv_pattern.search(original_name)
-        if match:
-            season = int(match.group(1))
-            ep = int(match.group(2))
-            prefix = f"[S{season:02d} EP{ep:02d}]"
-            processed = f"{prefix} {getattr(media, 'file_name', '')}"
-        else:
-            processed = str(getattr(media, "file_name", ""))
-
-        cleaned = cleanup_regex.sub(" ", processed).strip()
-
-        rows.append(
-            (
-                str(file_id),
-                file_ref,
-                cleaned,
-                getattr(media, "file_size", None),
-                get_size(getattr(media, "file_size", None)),
-                getattr(media, "file_type", None),
-                getattr(media, "mime_type", None),
-                caption,
-                date_saved,
-            )
-        )
-
-    saved = await insert_rows_sql(db, rows)
-    # We cannot reliably compute duplicates precisely without extra queries; approximate:
-    duplicate_count = max(0, len(rows) - saved)
-    error_count = 0 if saved == len(rows) else (len(rows) - saved if saved >= 0 else len(rows))
-
-    return saved, duplicate_count, error_count
-
-
-# -------------------- Regular helpers: search/save/delete --------------------
 async def get_search_results(search_query: str, offset: int = 0) -> Tuple[List[dict], int]:
+    """Searches the SQLite database for files matching the query."""
     db = get_aiosqlite_connection()
-    search_terms = [t.strip() for t in search_query.split() if t.strip()]
-    if not search_terms:
-        return [], offset
-
+    search_terms = search_query.split()
     where_clauses = []
-    params: List[Any] = []
+    params = []
     for term in search_terms:
         where_clauses.append("(file_name LIKE ? OR caption LIKE ?)")
-        like = f"%{term}%"
-        params.extend([like, like])
-
-    where_sql = " AND ".join(where_clauses)
+        params.extend([f"%{term}%", f"%{term}%"])
+    
+    where_statement = " AND ".join(where_clauses)
     query = f"""
         SELECT file_id, file_name, size
         FROM media
-        WHERE {where_sql}
+        WHERE {where_statement}
         ORDER BY date_saved DESC
         LIMIT ? OFFSET ?
     """
-    params.extend([MAX_FILES + 1, offset])
-
+    params.extend([MAX_FILES+1, offset])
+    
     async with db.execute(query, tuple(params)) as cursor:
         rows = await cursor.fetchall()
-
-    files = [{"file_id": r[0], "file_name": r[1], "size": r[2]} for r in rows]
+    
+    files = [{"file_id": row[0], "file_name": row[1], "size": row[2]} for row in rows]
     return files, offset + len(files)
 
 
-async def save_file_sql(media) -> Tuple[bool, int]:
-    db = get_aiosqlite_connection()
+async def save_file_sql(media):
     file_id, file_ref = unpack_new_file_id(media.file_id)
-    caption = getattr(media, "caption", str(getattr(media, "file_name", "")))
+    caption = getattr(media, 'caption', str(media.file_name))
     date_saved = datetime.datetime.now(pytz.utc)
     original_file_name = caption
 
-    pattern = re.compile(
-        r'(?<!\w)(?:s|season)[\s._-]*?(\d{1,2})[\s._-]*?(?:e|ep|episode)[\s._-]*?(\d{1,2})(?!\d)',
-        re.IGNORECASE,
-    )
+    pattern = re.compile(r'(?<!\w)(?:s|season)[\s._-]*?(\d{1,2})[\s._-]*?(?:e|ep|episode)[\s._-]*?(\d{1,2})(?!\d)',re.IGNORECASE)
     match = pattern.search(original_file_name)
 
     if match:
         season = int(match.group(1))
-        episode = int(match.group(2)) if match.group(2) else None
-        if episode is not None:
+        if match.group(2):
+            episode = int(match.group(2))
             prefix = f"[S{season:02d} EP{episode:02d}]"
         else:
             prefix = f"[S{season:02d}]"
-        processed_name = f"{prefix} {getattr(media, 'file_name', '')}"
-    else:
-        processed_name = getattr(media, "file_name", "")
 
-    file_name = re.sub(
-        r"(_|\+\s|\-|\.|\+|\[MM\]\s|\[MM\]_|\@TvSeriesBay|\@Cinema\sCompany|\@Cinema_Company|\@CC_|\@CC|\@MM_New|\@MM_Linkz|\@MOVIEHUNT|\@CL|\@FBM|\@CKMSERIES|www_DVDWap_Com_|MLM|\@WMR|\[CF\]\s|\[CF\]|\@IndianMoviez|\@tamil_mm|\@infotainmentmedia|\@trolldcompany|\@Rarefilms|\@yamandanmovies|\[YM\]|\@Mallu_Movies|\@YTSLT|\@DailyMovieZhunt|\@I_M_D_B|\@CC_All|\@PM_Old|Dvdworld|\[KMH\]|\@FBM_HW|\@Film_Kottaka|\@CC_X265|\@CelluloidCineClub|\@cinemaheist|\@telugu_moviez|\@CR_Rockers|\@CCineClub|KC_|\[KC\]|\[AML\])",
-        " ",
-        processed_name,
-    )
+        cleaned_name = pattern.sub('', original_file_name).strip()
+        cleaned_name = re.sub(r'[\s._-]+', ' ', cleaned_name).strip()
+        cleaned_name = re.sub(r'\s{2,}', ' ', cleaned_name)
+        processed_name = f"{prefix} {media.file_name}"
+    else:
+        processed_name = media.file_name
+    file_name = re.sub(r"(_|\+\s|\-|\.|\+|\[MM\]\s|\[MM\]_|\@TvSeriesBay|\@Cinema\sCompany|\@Cinema_Company|\@CC_|\@CC|\@MM_New|\@MM_Linkz|\@MOVIEHUNT|\@CL|\@FBM|\@CKMSERIES|www_DVDWap_Com_|MLM|\@WMR|\[CF\]\s|\[CF\]|\@IndianMoviez|\@tamil_mm|\@infotainmentmedia|\@trolldcompany|\@Rarefilms|\@yamandanmovies|\[YM\]|\@Mallu_Movies|\@YTSLT|\@DailyMovieZhunt|\@I_M_D_B|\@CC_All|\@PM_Old|Dvdworld|\[KMH\]|\@FBM_HW|\@Film_Kottaka|\@CC_X265|\@CelluloidCineClub|\@cinemaheist|\@telugu_moviez|\@CR_Rockers|\@CCineClub|KC_|\[KC\]|\[AML\])", " ", processed_name)
     try:
+        db = get_aiosqlite_connection()
         await db.execute(
             """
             INSERT INTO media (file_id, file_ref, file_name, file_size, size, file_type, mime_type, caption, date_saved)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                str(file_id),
+                file_id,
                 file_ref,
                 file_name,
-                getattr(media, "file_size", None),
-                get_size(getattr(media, "file_size", None)),
-                getattr(media, "file_type", None),
-                getattr(media, "mime_type", None),
+                media.file_size,
+                get_size(media.file_size),
+                media.file_type,
+                media.mime_type,
                 caption,
-                date_saved,
+                date_saved
             ),
         )
         await db.commit()
@@ -447,37 +271,103 @@ async def save_file_sql(media) -> Tuple[bool, int]:
     except aiosqlite.IntegrityError as e:
         if "UNIQUE constraint failed: media.file_id" in str(e):
             return False, 0
-        logger.exception(f"Integrity error while saving file '{file_name}': {e}")
-        return False, 2
+        else:
+            logger.exception(f"Error occurred while saving file '{file_name}': {e}")
+            return False, 2
     except Exception as e:
-        logger.exception(f"Unexpected error while saving file '{file_name}': {e}")
+        logger.exception(f"Unexpected error occurred while saving file '{file_name}': {e}")
         return False, 2
+
+async def save_files_sql_batch(media_list: list) -> tuple:
+    if not media_list:
+        return 0, 0, 0
+    data_to_insert = []
+    date_saved = datetime.datetime.now(pytz.utc)
+    for media in media_list:
+        file_id, file_ref = unpack_new_file_id(media.file_id)
+        caption = getattr(media, 'caption', str(media.file_name))
+        original_file_name = caption
+
+        pattern = re.compile(r'(?<!\w)(?:s|season)[\s._-]*?(\d{1,2})[\s._-]*?(?:e|ep|episode)[\s._-]*?(\d{1,2})(?!\d)',re.IGNORECASE)
+        match = pattern.search(original_file_name)
+
+        if match:
+            season = int(match.group(1))
+            if match.group(2):
+                episode = int(match.group(2))
+                prefix = f"[S{season:02d} EP{episode:02d}]"
+            else:
+                prefix = f"[S{season:02d}]"
+
+            cleaned_name = pattern.sub('', original_file_name).strip()
+            cleaned_name = re.sub(r'[\s._-]+', ' ', cleaned_name).strip()
+            cleaned_name = re.sub(r'\s{2,}', ' ', cleaned_name)
+            processed_name = f"{prefix} {media.file_name}"
+        else:
+            processed_name = media.file_name
+        file_name = re.sub(r"(_|\+\s|\-|\.|\+|\[MM\]\s|\[MM\]_|\@TvSeriesBay|\@Cinema\sCompany|\@Cinema_Company|\@CC_|\@CC|\@MM_New|\@MM_Linkz|\@MOVIEHUNT|\@CL|\@FBM|\@CKMSERIES|www_DVDWap_Com_|MLM|\@WMR|\[CF\]\s|\[CF\]|\@IndianMoviez|\@tamil_mm|\@infotainmentmedia|\@trolldcompany|\@Rarefilms|\@yamandanmovies|\[YM\]|\@Mallu_Movies|\@YTSLT|\@DailyMovieZhunt|\@I_M_D_B|\@CC_All|\@PM_Old|Dvdworld|\[KMH\]|\@FBM_HW|\@Film_Kottaka|\@CC_X265|\@CelluloidCineClub|\@cinemaheist|\@telugu_moviez|\@CR_Rockers|\@CCineClub|KC_|\[KC\]|\[AML\])", " ", processed_name)
+        data_to_insert.append((
+            file_id,
+            file_ref,
+            file_name,
+            media.file_size,
+            get_size(media.file_size),
+            media.file_type,
+            media.mime_type,
+            caption,
+            date_saved
+        ))
+    saved_count = 0
+    duplicate_count = 0
+    error_count = 0
+    try:
+        db = get_aiosqlite_connection()
+        cursor = await db.executemany(
+            """
+            INSERT OR IGNORE INTO media (file_id, file_ref, file_name, file_size, size, file_type, mime_type, caption, date_saved)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            data_to_insert,
+        )
+        await db.commit()
+        saved_count = cursor.rowcount
+        duplicate_count = len(data_to_insert) - saved_count
+    except Exception as e:
+        logger.error(f"Error in batch saving to SQLite DB: {e}", exc_info=True)
+        error_count = len(data_to_insert)
+        saved_count = 0
+        duplicate_count = 0
+    return saved_count, duplicate_count, error_count
 
 
 async def delete_file_sql(file_id: str) -> bool:
+    """Deletes a single file record from the SQLite database."""
     try:
         db = get_aiosqlite_connection()
         await db.execute("DELETE FROM media WHERE file_id = ?", (file_id,))
         await db.commit()
         return True
-    except Exception:
-        logger.exception("Error deleting file from SQLite")
+    except Exception as e:
+        logging.error(f"Error occurred while deleting file with ID '{file_id}': {e}", exc_info=True)
         return False
 
 
 async def delete_all_files_sql() -> Tuple[bool, int]:
+    """Deletes all file records from the SQLite database."""
     try:
         db = get_aiosqlite_connection()
-        cur = await db.execute("SELECT COUNT(*) FROM media")
-        row = await cur.fetchone()
-        total_files = row[0] if row else 0
+        cursor = await db.execute("SELECT COUNT(*) FROM media")
+        count_row = await cursor.fetchone()
+        total_files = count_row[0] if count_row else 0
+        
         if total_files == 0:
-            logger.info("No files to delete, database is already empty.")
+            logging.info("No files to delete, database is already empty.")
             return True, 0
+            
         await db.execute("DELETE FROM media")
         await db.commit()
-        logger.info(f"All {total_files} files deleted from database.")
+        logging.info(f"All {total_files} files deleted from database.")
         return True, total_files
-    except Exception:
-        logger.exception("Error occurred while deleting all files from database")
+    except Exception as e:
+        logging.exception(f"Error occurred while deleting all files from database: {e}")
         return False, 0
