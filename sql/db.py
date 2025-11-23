@@ -1,4 +1,3 @@
-
 import asyncio
 import logging
 import aiosqlite
@@ -21,6 +20,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Optimization: Increased batch size for fewer DB calls
 BATCH_SIZE = 10000
 PROGRESS_STEP = 50000
+SUPER_BATCH_SIZE = 100000  # Commit every 100,000 files to prevent single massive transaction
 
 # --- Database Clients ---
 SQLITE_DB = f"media_{BOT_TOKEN}.sqlite3"
@@ -84,6 +84,7 @@ async def check_data_exists(table_name: str) -> bool:
 
 async def set_sqlite_pragmas(db: aiosqlite.Connection):
     """Sets optimal PRAGMA settings for fast bulk inserts."""
+    # Use WAL mode and reduced sync for maximal write throughput during migration
     await db.execute("PRAGMA journal_mode = WAL;")
     await db.execute("PRAGMA synchronous = NORMAL;")
     await db.execute("PRAGMA locking_mode = EXCLUSIVE;")
@@ -100,7 +101,11 @@ async def insert_batch_no_commit(db, batch):
     """, batch)
 
 async def migrate_to_sql():
-    """Performs a high-speed migration from MongoDB to SQLite."""
+    """
+    Performs a high-speed migration from MongoDB to SQLite.
+    Uses batching, a single transaction per collection (broken up by SUPER_BATCH_SIZE),
+    and optimal PRAGMA settings.
+    """
     logging.info("🚀 Starting multi-database migration with high-speed optimizations...")
     await init_aiosqlite_connection(SQLITE_DB)
     sql_db = get_aiosqlite_connection()
@@ -148,7 +153,7 @@ async def migrate_to_sql():
             logging.critical(f"  CRITICAL ERROR connecting to DB '{current_db.name}': {e}", exc_info=True)
             continue
 
-        # --- Begin a single transaction for the entire collection ---
+        # --- Begin a single transaction for the current batch ---
         await sql_db.execute("BEGIN;")
         logging.info("  Transaction started.")
 
@@ -156,6 +161,7 @@ async def migrate_to_sql():
             cursor = collection.find({})
             batch = []
             total_saved_current_collection = 0
+            
             async for doc in cursor:
                 batch.append((
                     str(doc.get("_id")),
@@ -168,21 +174,29 @@ async def migrate_to_sql():
                     doc.get("caption"),
                     doc.get("date", datetime.datetime.now(pytz.utc))
                 ))
+                
                 if len(batch) >= BATCH_SIZE:
                     await insert_batch_no_commit(sql_db, batch)
                     total_saved_current_collection += len(batch)
                     batch = []
-                    if total_saved_current_collection % PROGRESS_STEP == 0:
-                        logging.info(f"    ...inserted {total_saved_current_collection} / {doc_count} files")
+                    
+                    # --- Intermittent Commit Logic for huge collections ---
+                    if total_saved_current_collection % SUPER_BATCH_SIZE == 0:
+                        await sql_db.commit() # Commit the current transaction
+                        await sql_db.execute("BEGIN;") # Start a new transaction
+                        logging.info(f"    ...SUPER-BATCH inserted and committed: {total_saved_current_collection} / {doc_count} files")
+                    # --- Regular Progress Update ---
+                    elif total_saved_current_collection % PROGRESS_STEP == 0:
+                        logging.info(f"    ...batch inserted: {total_saved_current_collection} / {doc_count} files")
             
             # Insert the final, smaller batch if it exists
             if batch:
                 await insert_batch_no_commit(sql_db, batch)
                 total_saved_current_collection += len(batch)
             
-            # --- Commit the transaction once all documents are processed ---
+            # --- Commit the final transaction for the collection ---
             await sql_db.commit()
-            logging.info("  Transaction committed successfully.")
+            logging.info("  Final transaction committed successfully.")
 
             logging.info(f"✅ Migration completed for '{current_collection_name}': {total_saved_current_collection} files saved.")
             total_files_saved_across_all_sources += total_saved_current_collection
