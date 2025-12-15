@@ -36,9 +36,9 @@ AUTH_USERS = (auth_users + ADMINS) if auth_users else []
 # MongoDB information
 DATABASE_NAME = environ.get('DATABASE_NAME', "CyberTG")
 COLLECTION_NAME = environ.get('COLLECTION_NAME', "Telegram-Document")
-DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://SadieDB1:SadieDB1@sadiedb1.r4iyd6u.mongodb.net/?retryWrites=true&w=majority&appName=SadieDB1")
-DATABASE_URI2 = environ.get('DATABASE_URI2', "mongodb+srv://SadieDB2:SadieDB2@cluster0.ajdm5la.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
-DATABASE_URI3 = environ.get('DATABASE_URI3', "mongodb+srv://SadieDB3:SadieDB3@sadiedb3.p79deso.mongodb.net/?retryWrites=true&w=majority&appName=SadieDB3")
+DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://max1:max1@max1.9teyqrs.mongodb.net/?appName=max1")
+DATABASE_URI2 = environ.get('DATABASE_URI2', "mongodb+srv://max2:max2@max2.kk8oia1.mongodb.net/?appName=max2")
+DATABASE_URI3 = environ.get('DATABASE_URI3', "mongodb+srv://max3:max3@max3.docuxuo.mongodb.net/?appName=max3")
 
 # FSUB
 AUTH_CHANNEL = int(environ.get('AUTH_CHANNEL')) if (auth_channel := environ.get('AUTH_CHANNEL')) and id_pattern.search(auth_channel) else None
