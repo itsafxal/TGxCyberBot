@@ -13,8 +13,8 @@ def is_enabled(value, default):
 
 # Bot information
 SESSION = environ.get('SESSION', 'Media_searcher')
-API_ID = int(environ.get('API_ID', '21352077'))
-API_HASH = environ.get('API_HASH', 'e4ba74d3f410dffbe848402989e61a04')
+API_ID = int(environ.get('API_ID', '17904302'))
+API_HASH = environ.get('API_HASH', 'fecbfab082459d9b830a1019cf89769d')
 BOT_TOKEN = environ.get('BOT_TOKEN', '8055568410:AAHvvfYq9ZzncOOzZgd1EqLoe5_WPFGRfsk')
 
 # Bot settings
@@ -27,8 +27,8 @@ USE_CAPTION_FILTER = True
 PICS = (environ.get('PICS', 'https://envs.sh/tzC.jpg https://envs.sh/tz3.jpg https://envs.sh/tzY.jpg')).split()
 
 # Admins & Users
-OWNER_ID = environ.get('OWNER_ID', '5483128891')
-ADMINS = [int(admin) if id_pattern.search(admin) else admin for admin in environ.get('ADMINS', '5483128891').split()]
+OWNER_ID = environ.get('OWNER_ID', '5794562450')
+ADMINS = [int(admin) if id_pattern.search(admin) else admin for admin in environ.get('ADMINS', '5794562450').split()]
 CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get('CHANNELS', '-1003110605300 -1003076024633 -1001984695581 -1001541833234').split()]
 auth_users = [int(user) if id_pattern.search(user) else user for user in environ.get('AUTH_USERS', '').split()]
 AUTH_USERS = (auth_users + ADMINS) if auth_users else []
