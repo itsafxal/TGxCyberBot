@@ -23,10 +23,13 @@ MAX_FILES = int(environ.get('MAX_FILES', 8))
 CACHE_TIME = int(environ.get('CACHE_TIME', 300))
 USE_CAPTION_FILTER = True
 
+# Pics
+PICS = (environ.get('PICS', 'https://envs.sh/tzC.jpg https://envs.sh/tz3.jpg https://envs.sh/tzY.jpg')).split()
+
 # Admins & Users
-OWNER_ID = environ.get('OWNER_ID', '5483128891')
-ADMINS = [int(admin) if id_pattern.search(admin) else admin for admin in environ.get('ADMINS', '5483128891').split()]
-CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get('CHANNELS', '-1001811670072 -1001984695581 -1001541833234 -1001554078987').split()]
+OWNER_ID = environ.get('OWNER_ID', '5794562450')
+ADMINS = [int(admin) if id_pattern.search(admin) else admin for admin in environ.get('ADMINS', '5794562450').split()]
+CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get('CHANNELS', '-1003110605300 -1003076024633 -1001984695581 -1001541833234').split()]
 auth_users = [int(user) if id_pattern.search(user) else user for user in environ.get('AUTH_USERS', '').split()]
 AUTH_USERS = (auth_users + ADMINS) if auth_users else []
 
@@ -37,6 +40,7 @@ DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://Tessa1:Tessa1@cluster0
 DATABASE_URI2 = environ.get('DATABASE_URI2', "mongodb+srv://Tessa2:Tessa2@cluster0.r3zwefc.mongodb.net/?appName=Cluster0")
 DATABASE_URI3 = environ.get('DATABASE_URI3', "mongodb+srv://Tessa3:Tessa3@cluster0.oqu8fh8.mongodb.net/?appName=Cluster0")
 
+
 # FSUB
 AUTH_CHANNEL = int(environ.get('AUTH_CHANNEL')) if (auth_channel := environ.get('AUTH_CHANNEL')) and id_pattern.search(auth_channel) else None
 REQ_CHANNEL1=environ.get("REQ_CHANNEL1", None)
@@ -46,7 +50,7 @@ REQ_CHANNEL2 = (int(REQ_CHANNEL2) if REQ_CHANNEL2 and id_pattern.search(REQ_CHAN
 JOIN_REQS_DB = environ.get("JOIN_REQS_DB", DATABASE_URI)
 
 # Others
-LOG_CHANNEL = int(environ.get('LOG_CHANNEL', '-1002817195017'))
+LOG_CHANNEL = int(environ.get('LOG_CHANNEL', '-1003094463113'))
 FILE_STORE_CHANNEL = int(environ.get('FILE_STORE_CHANNEL', 0))
 PUBLIC_FILE_STORE = int(environ.get('PUBLIC_FILE_STORE', 0))
 SUPPORT_CHAT = environ.get('SUPPORT_CHAT', 'MLZ_BOTZ_SUPPORT') # Please set your support chat link
