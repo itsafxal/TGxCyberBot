@@ -589,7 +589,7 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
         buttons = [[
             InlineKeyboardButton('➜ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ➜', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
         ],[
-            InlineKeyboardButton("⭐ Cᴏɴᴛᴀᴄᴛ Aᴅᴍɪɴ Fᴏʀ Cᴏᴍᴘʟᴀɪɴᴛ ⭐", url=f'https://t.me/AboutCyberTG')
+            InlineKeyboardButton("⭐ Cᴏɴᴛᴀᴄᴛ Aᴅᴍɪɴ Fᴏʀ Cᴏᴍᴘʟᴀɪɴᴛ ⭐", url=f'https://t.me/CyberTGz')
         ],[
             InlineKeyboardButton('✜ ʜᴇʟᴘ', callback_data="help"),
             InlineKeyboardButton('✜ ᴀʙᴏᴜᴛ', callback_data="about")
