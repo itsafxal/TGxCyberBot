@@ -123,7 +123,7 @@ async def start(client, message):
         buttons = [[
             InlineKeyboardButton('➜ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ➜', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
         ],[
-            InlineKeyboardButton("⭐ Cᴏɴᴛᴀᴄᴛ Aᴅᴍɪɴ Fᴏʀ Cᴏᴍᴘʟᴀɪɴᴛ ⭐", url=f'https://t.me/CyberTGz')
+            InlineKeyboardButton("⭐ Cᴏɴᴛᴀᴄᴛ Aᴅᴍɪɴ Fᴏʀ Cᴏᴍᴘʟᴀɪɴᴛ ⭐", url=f'https://cybertg.vercel.app')
         ],[
             InlineKeyboardButton('✜ ʜᴇʟᴘ', callback_data='help'),
             InlineKeyboardButton('✜ ᴀʙᴏᴜᴛ', callback_data='about')
