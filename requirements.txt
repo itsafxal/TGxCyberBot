@@ -15,4 +15,4 @@ python-dotenv
 pytz
 aiofiles
 uvloop==0.21.0
-
+httpx
