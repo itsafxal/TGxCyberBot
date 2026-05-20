@@ -3,6 +3,7 @@ import re
 import ast
 import time
 import random
+import html
 from datetime import datetime, timedelta
 import logging
 
@@ -89,13 +90,15 @@ async def raw_send_message(chat_id, text, inline_keyboard, reply_to_message_id=N
     payload = {
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "Markdown",
+        "parse_mode": "HTML",
         "reply_markup": {"inline_keyboard": build_raw_keyboard(inline_keyboard)},
     }
     if reply_to_message_id:
-        payload["reply_to_message_id"] = reply_to_message_id
+        payload["reply_parameters"] = {"message_id": reply_to_message_id}
     async with httpx.AsyncClient() as http:
-        await http.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload)
+        resp = await http.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload)
+        if not resp.json().get("ok"):
+            logger.error(f"raw_send_message failed: {resp.text}")
 
 async def raw_edit_message(chat_id, message_id, text, inline_keyboard):
     """Edits a message with colored buttons using raw Bot API."""
@@ -103,11 +106,13 @@ async def raw_edit_message(chat_id, message_id, text, inline_keyboard):
         "chat_id": chat_id,
         "message_id": message_id,
         "text": text,
-        "parse_mode": "Markdown",
+        "parse_mode": "HTML",
         "reply_markup": {"inline_keyboard": build_raw_keyboard(inline_keyboard)},
     }
     async with httpx.AsyncClient() as http:
-        await http.post(f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText", json=payload)
+        resp = await http.post(f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText", json=payload)
+        if not resp.json().get("ok"):
+            logger.error(f"raw_edit_message failed: {resp.text}")
 
 async def raw_edit_reply_markup(chat_id, message_id, inline_keyboard):
     """Edits only the reply markup (buttons) of a message using raw Bot API."""
@@ -193,7 +198,7 @@ async def next_page_cb(bot, query):
     except ValueError:
         return await query.answer("Iɴᴠᴀʟɪᴅ ᴘᴀɢɪɴᴀᴛɪᴏɴ ᴅᴀᴛᴀ.", show_alert=True)
     
-    cyber = query.from_user.mention
+    cyber = f'<a href="tg://user?id={query.from_user.id}">{query.from_user.first_name}</a>'
     req = SEARCH_CACHE.get(search_key)
 
     if not req:
@@ -227,12 +232,12 @@ async def next_page_cb(bot, query):
     nav_buttons = []
     if offset > 0:
         prev_offset = max(0, offset - MAX_FILES)
-        # 🔵 Blue Back button (default, no style)
-        nav_buttons.append({"text": "⏮ 𝗕𝗮𝗰𝗸", "callback_data": f"next|{search_key}|{prev_offset}"})
+        # 🔵 Blue Back button
+        nav_buttons.append({"text": "⏮ 𝗕𝗮𝗰𝗸", "callback_data": f"next|{search_key}|{prev_offset}", "style": "primary"})
 
     if next_offset:
         # 🟢 Green Next button
-        nav_buttons.append({"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{next_offset}", "style": "positive"})
+        nav_buttons.append({"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{next_offset}", "style": "success"})
 
     if nav_buttons:
         btn.append(nav_buttons)
@@ -241,8 +246,8 @@ async def next_page_cb(bot, query):
         current_page = (offset // MAX_FILES) + 1
         caption = (
             f"𝗛𝗘𝗬👋 {cyber} 🫶\n\n"
-            f"📁𝙌𝙪𝙚𝙧𝙮 : {req}\n\n"
-            f"🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `{current_page}`\n\n"
+            f"📁𝙌𝙪𝙚𝙧𝙮 : {html.escape(req)}\n\n"
+            f"🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › <code>{current_page}</code>\n\n"
             f"✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞ɴ 15 𝙈𝙞ɴS..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️"
         )
         await raw_edit_message(query.message.chat.id, query.message.id, caption, btn)
@@ -273,7 +278,7 @@ def generate_main_buttons(files, offset, search_key):
     if offset:
         btn.append([
             # 🟢 Green Next button via raw dict (Bot API 9.4 style field)
-            {"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{offset}", "style": "positive"}
+            {"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{offset}", "style": "success"}
         ])
     else:
         btn.append([InlineKeyboardButton(
@@ -726,7 +731,9 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
 
 async def auto_filter(client, message):
     search = message.text
-    cyber = message.from_user.mention
+    user = message.from_user
+    # HTML-safe mention for use with parse_mode=HTML
+    cyber = f'<a href="tg://user?id={user.id}">{user.first_name}</a>'
     if len(search) < 2 or len(search) > 150:
         return
     files, offset = await get_search_results(search, offset=0)
@@ -750,12 +757,12 @@ async def auto_filter(client, message):
     if offset:
         # 🟢 Green Next button
         btn.append([
-            {"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{offset}", "style": "positive"}
+            {"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{offset}", "style": "success"}
         ])
     caption = (
         f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n"
-        f"📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n"
-        f"🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n"
+        f"📁𝙌𝙪𝙚𝙧𝙮 : {html.escape(search)}\n\n"
+        f"🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › <code>1</code>\n\n"
         f"✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣S..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️"
     )
     await raw_send_message(message.chat.id, caption, btn, reply_to_message_id=message.id)
@@ -763,7 +770,9 @@ async def auto_filter(client, message):
 
 async def pm_auto_filter(client, message):
     search = message.text
-    cyber = message.from_user.mention
+    user = message.from_user
+    # HTML-safe mention for use with parse_mode=HTML
+    cyber = f'<a href="tg://user?id={user.id}">{user.first_name}</a>'
     if len(search) < 2 or len(search) > 150:
         return
     files, offset = await get_search_results(search, offset=0)
@@ -787,12 +796,12 @@ async def pm_auto_filter(client, message):
     if offset:
         # 🟢 Green Next button
         btn.append([
-            {"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{offset}", "style": "positive"}
+            {"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{offset}", "style": "success"}
         ])
     caption = (
         f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n"
-        f"📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n"
-        f"🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n"
+        f"📁𝙌𝙪𝙚𝙧𝙮 : {html.escape(search)}\n\n"
+        f"🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › <code>1</code>\n\n"
         f"✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣S..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️"
     )
     await raw_send_message(message.chat.id, caption, btn, reply_to_message_id=message.id)
