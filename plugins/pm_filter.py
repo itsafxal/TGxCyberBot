@@ -799,10 +799,10 @@ async def pm_auto_filter(client, message):
             {"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{offset}", "style": "success"}
         ])
     caption = (
-        f" 𝗛𝗘𝗬👋<tg-emoji emoji-id="5247133031235329609">🔥</tg-emoji> {cyber} 🫶\n\n"
-        f"📁𝙌𝙪𝙚𝙧𝙮 : {html.escape(search)}\n\n"
-        f"🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › <code>1</code>\n\n"
-        f"✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣S..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️"
+        f' 𝗛𝗘𝗬👋<tg-emoji emoji-id="5247133031235329609">🔥</tg-emoji> {cyber} 🫶\n\n'
+        f'📁𝙌𝙪𝙚𝙧𝙮 : {html.escape(search)}\n\n'
+        f'🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › <code>1</code>\n\n'
+        f'✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣S..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️'
     )
     await raw_send_message(message.chat.id, caption, btn, reply_to_message_id=message.id)
     SEARCH_CACHE.set(search_key, search)
