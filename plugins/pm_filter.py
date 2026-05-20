@@ -232,8 +232,8 @@ async def next_page_cb(bot, query):
     nav_buttons = []
     if offset > 0:
         prev_offset = max(0, offset - MAX_FILES)
-        # 🔵 Blue Back button (default, no style)
-        nav_buttons.append({"text": "⏮ 𝗕𝗮𝗰𝗸", "callback_data": f"next|{search_key}|{prev_offset}"})
+        # 🔵 Blue Back button
+        nav_buttons.append({"text": "⏮ 𝗕𝗮𝗰𝗸", "callback_data": f"next|{search_key}|{prev_offset}", "style": "primary"})
 
     if next_offset:
         # 🟢 Green Next button
