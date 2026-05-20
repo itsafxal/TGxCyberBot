@@ -237,7 +237,7 @@ async def next_page_cb(bot, query):
 
     if next_offset:
         # 🟢 Green Next button
-        nav_buttons.append({"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{next_offset}", "style": "positive"})
+        nav_buttons.append({"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{next_offset}", "style": "success"})
 
     if nav_buttons:
         btn.append(nav_buttons)
@@ -278,7 +278,7 @@ def generate_main_buttons(files, offset, search_key):
     if offset:
         btn.append([
             # 🟢 Green Next button via raw dict (Bot API 9.4 style field)
-            {"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{offset}", "style": "positive"}
+            {"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{offset}", "style": "success"}
         ])
     else:
         btn.append([InlineKeyboardButton(
@@ -757,7 +757,7 @@ async def auto_filter(client, message):
     if offset:
         # 🟢 Green Next button
         btn.append([
-            {"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{offset}", "style": "positive"}
+            {"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{offset}", "style": "success"}
         ])
     caption = (
         f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n"
@@ -796,7 +796,7 @@ async def pm_auto_filter(client, message):
     if offset:
         # 🟢 Green Next button
         btn.append([
-            {"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{offset}", "style": "positive"}
+            {"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{offset}", "style": "success"}
         ])
     caption = (
         f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n"
