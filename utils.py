@@ -405,20 +405,19 @@ async def delete_messages_loop(client):
                     auto_delete_queue.remove_message(chat_id, message_id)
         await asyncio.sleep(60) # Check every 60 seconds (adjust as needed)
 
-async def premium_emoji(text, emoji_map):
+def premium_emoji(text, emoji_map):
     entities = []
 
     for emoji, emoji_id in emoji_map.items():
-        start = text.find(emoji)
+        start = text.index(emoji)
 
-        if start != -1:
-            entities.append(
-                MessageEntity(
-                    type=MessageEntityType.CUSTOM_EMOJI,
-                    offset=start,
-                    length=len(emoji),
-                    custom_emoji_id=str(emoji_id)
-                )
+        entities.append(
+            MessageEntity(
+                type=MessageEntityType.CUSTOM_EMOJI,
+                offset=start,
+                length=len(emoji),
+                custom_emoji_id=str(emoji_id)
             )
+        )
 
     return entities
