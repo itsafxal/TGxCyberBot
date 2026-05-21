@@ -20,7 +20,7 @@ from database.ia_filterdb import get_file_details, Media2, Media3, db as clientD
 from database.gfilters_mdb import find_gfilter, get_gfilters
 from info import ADMINS, CUSTOM_FILE_CAPTION, AUTO_DEL, MAX_FILES
 from sql.db import get_search_results, delete_file_sql
-from utils import get_size, temp, is_requested_one, is_requested_two, add_auto_delete_message
+from utils import get_size, temp, is_requested_one, is_requested_two, add_auto_delete_message, premium_emoji
 
 # --- Configuration ---
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
