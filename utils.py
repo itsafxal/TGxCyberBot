@@ -6,11 +6,13 @@ from datetime import datetime, timedelta
 from typing import Union, List, Tuple
 from pyrogram import Client, enums
 from pyrogram.errors import UserNotParticipant
-from pyrogram.types import Message, InlineKeyboardButton
+from pyrogram.types import Message, InlineKeyboardButton, MessageEntity
 from database.users_chats_db import db
 from info import ADMINS
 from bs4 import BeautifulSoup  # Although imported, not used in the provided code
 import requests  # Although imported, not used in the provided code
+from pyrogram.enums import MessageEntityType
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -402,3 +404,21 @@ async def delete_messages_loop(client):
                     # Remove the message from the queue regardless of success or failure
                     auto_delete_queue.remove_message(chat_id, message_id)
         await asyncio.sleep(60) # Check every 60 seconds (adjust as needed)
+
+async def premium_emoji(text, emoji_map):
+    entities = []
+
+    for emoji, emoji_id in emoji_map.items():
+        start = text.find(emoji)
+
+        if start != -1:
+            entities.append(
+                MessageEntity(
+                    type=MessageEntityType.CUSTOM_EMOJI,
+                    offset=start,
+                    length=len(emoji),
+                    custom_emoji_id=str(emoji_id)
+                )
+            )
+
+    return entities
