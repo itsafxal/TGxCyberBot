@@ -753,7 +753,7 @@ async def pm_auto_filter(client, message):
             InlineKeyboardButton(
                 text=f"🧸 {file['size']} 🌷 {file['file_name']}",
                 callback_data=f"file#{file['file_id']}",
-                style=ButtonStyle.DEFAULT,  # Blue
+                style=ButtonStyle.DEFAULT,
                 icon_custom_emoji_id=5440389890787281213
             ),
         ]
@@ -764,14 +764,14 @@ async def pm_auto_filter(client, message):
         InlineKeyboardButton(
             text="Lᴀɴɢᴜᴀɢᴇs",
             callback_data=f"languages#{search_key}",
-            style=ButtonStyle.PRIMARY,  # Green
+            style=ButtonStyle.PRIMARY,
             icon_custom_emoji_id=5888584382553265934
         ),
 
         InlineKeyboardButton(
             text="Qᴜᴀʟɪᴛʏ",
             callback_data=f"qualities#{search_key}",
-            style=ButtonStyle.PRIMARY,  # Red
+            style=ButtonStyle.PRIMARY,
             icon_custom_emoji_id=5802910664150226061
         )
     ])
@@ -787,21 +787,37 @@ async def pm_auto_filter(client, message):
         ])
 
     caption = (
-        f"𝗛𝗘𝗬 👋 {cyber} 🫶\n\n"
+        f"👋 𝗛𝗘𝗬 {cyber} 🫶\n\n"
         f"📁 Query : {search}\n\n"
-        f"🗂️ Page No › `1`\n\n"
+        f"🗂️ Page No › 1 🎬\n\n"
         f"✍️ NOTE : ⚠️ This Message Will Be Auto Deleted Within 15 Mins ❗️\n\n"
-        f"©ᶜʸᵇᵉʳᵗᵍ 🗡️"
+        f"🗡️ ©ᶜʸᵇᵉʳᵗᵍ"
+    )
+
+    entities = premium_emoji(
+        caption,
+        {
+            "👋": 5388886459744792797,
+            "🫶": 5388810262729997849,
+            "📁": 5800835941543186089,
+            "📆": 5413879192267805083,
+            "🎬": 5264919878082509254,
+            "✍️": 5458382591121964689,
+            "⚠️": 5188463524568926712,
+            "❗️": 6312353154788758411,
+            "🗡️": 5460755126761312667
+        }
     )
 
     await message.reply_text(
         caption,
+        entities=entities,
         reply_markup=InlineKeyboardMarkup(btn),
         quote=True
     )
 
     SEARCH_CACHE.set(search_key, search)
-
+    
 async def global_filters(client, message):
     """Optimized global filter check using a cached regex pattern."""
     pattern = await get_gfilters_cached()
