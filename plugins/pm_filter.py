@@ -3,11 +3,8 @@ import re
 import ast
 import time
 import random
-import html
 from datetime import datetime, timedelta
 import logging
-
-import httpx
 
 from pyrogram import Client, filters, enums
 from pyrogram.errors import FloodWait, UserIsBlocked, MessageNotModified, PeerIdInvalid, QueryIdInvalid
@@ -20,7 +17,7 @@ from Script import script
 from database.users_chats_db import db
 from database.ia_filterdb import get_file_details, Media2, Media3, db as clientDB, db2 as clientDB2, db3 as clientDB3, fetch_mongo_ids_by_keyword
 from database.gfilters_mdb import find_gfilter, get_gfilters
-from info import ADMINS, CUSTOM_FILE_CAPTION, AUTO_DEL, MAX_FILES, BOT_TOKEN
+from info import ADMINS, CUSTOM_FILE_CAPTION, AUTO_DEL, MAX_FILES
 from sql.db import get_search_results, delete_file_sql
 from utils import get_size, temp, is_requested_one, is_requested_two, add_auto_delete_message
 
@@ -59,70 +56,6 @@ class SearchCache:
 
 # Global instance
 SEARCH_CACHE = SearchCache(max_size=5000)
-
-# --- Raw Bot API helpers for colored buttons (Bot API 9.4 style field) ---
-
-def build_raw_keyboard(btn_rows):
-    """
-    Converts a list of button rows into raw Bot API inline_keyboard dicts.
-    Each button is either:
-      - an InlineKeyboardButton  -> converted to dict
-      - already a dict           -> used as-is (supports 'style' field)
-    """
-    raw = []
-    for row in btn_rows:
-        raw_row = []
-        for btn in row:
-            if isinstance(btn, dict):
-                raw_row.append(btn)
-            else:
-                d = {"text": btn.text}
-                if btn.callback_data:
-                    d["callback_data"] = btn.callback_data
-                if btn.url:
-                    d["url"] = btn.url
-                raw_row.append(d)
-        raw.append(raw_row)
-    return raw
-
-async def raw_send_message(chat_id, text, inline_keyboard, reply_to_message_id=None):
-    """Sends a message with colored buttons using raw Bot API."""
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "reply_markup": {"inline_keyboard": build_raw_keyboard(inline_keyboard)},
-    }
-    if reply_to_message_id:
-        payload["reply_parameters"] = {"message_id": reply_to_message_id}
-    async with httpx.AsyncClient() as http:
-        resp = await http.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload)
-        if not resp.json().get("ok"):
-            logger.error(f"raw_send_message failed: {resp.text}")
-
-async def raw_edit_message(chat_id, message_id, text, inline_keyboard):
-    """Edits a message with colored buttons using raw Bot API."""
-    payload = {
-        "chat_id": chat_id,
-        "message_id": message_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "reply_markup": {"inline_keyboard": build_raw_keyboard(inline_keyboard)},
-    }
-    async with httpx.AsyncClient() as http:
-        resp = await http.post(f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText", json=payload)
-        if not resp.json().get("ok"):
-            logger.error(f"raw_edit_message failed: {resp.text}")
-
-async def raw_edit_reply_markup(chat_id, message_id, inline_keyboard):
-    """Edits only the reply markup (buttons) of a message using raw Bot API."""
-    payload = {
-        "chat_id": chat_id,
-        "message_id": message_id,
-        "reply_markup": {"inline_keyboard": build_raw_keyboard(inline_keyboard)},
-    }
-    async with httpx.AsyncClient() as http:
-        await http.post(f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageReplyMarkup", json=payload)
 
 async def get_gfilters_cached():
     """Caches global filter keywords to reduce DB load."""
@@ -198,7 +131,7 @@ async def next_page_cb(bot, query):
     except ValueError:
         return await query.answer("Iɴᴠᴀʟɪᴅ ᴘᴀɢɪɴᴀᴛɪᴏɴ ᴅᴀᴛᴀ.", show_alert=True)
     
-    cyber = f'<a href="tg://user?id={query.from_user.id}">{query.from_user.first_name}</a>'
+    cyber = query.from_user.mention
     req = SEARCH_CACHE.get(search_key)
 
     if not req:
@@ -231,27 +164,23 @@ async def next_page_cb(bot, query):
 
     nav_buttons = []
     if offset > 0:
-        prev_offset = max(0, offset - MAX_FILES)
-        # 🔵 Blue Back button
-        nav_buttons.append({"text": "⏮ 𝗕𝗮𝗰𝗸", "callback_data": f"next|{search_key}|{prev_offset}", "style": "primary"})
-
+        
+        prev_offset = max(0, offset - MAX_FILES) 
+        nav_buttons.append(InlineKeyboardButton("⏮ 𝗕𝗮𝗰𝗸", callback_data=f"next|{search_key}|{prev_offset}"))
+        
     if next_offset:
-        # 🟢 Green Next button
-        nav_buttons.append({"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{next_offset}", "style": "success"})
+        nav_buttons.append(InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{next_offset}"))
 
     if nav_buttons:
         btn.append(nav_buttons)
 
     try:
         current_page = (offset // MAX_FILES) + 1
-        caption = (
-            f"𝗛𝗘𝗬👋 {cyber} 🫶\n\n"
-            f"📁𝙌𝙪𝙚𝙧𝙮 : {html.escape(req)}\n\n"
-            f"🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › <code>{current_page}</code>\n\n"
-            f"✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞ɴ 15 𝙈𝙞ɴS..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️"
+        await query.edit_message_text(
+            f"𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {req}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `{current_page}`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞ɴ 15 𝙈𝙞ɴS..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️",
+            reply_markup=InlineKeyboardMarkup(btn)
         )
-        await raw_edit_message(query.message.chat.id, query.message.id, caption, btn)
-    except Exception:
+    except MessageNotModified:
         pass
     await query.answer()
 
@@ -277,8 +206,7 @@ def generate_main_buttons(files, offset, search_key):
     # Add pagination buttons
     if offset:
         btn.append([
-            # 🟢 Green Next button via raw dict (Bot API 9.4 style field)
-            {"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{offset}", "style": "success"}
+            InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
         ])
     else:
         btn.append([InlineKeyboardButton(
@@ -731,9 +659,7 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
 
 async def auto_filter(client, message):
     search = message.text
-    user = message.from_user
-    # HTML-safe mention for use with parse_mode=HTML
-    cyber = f'<a href="tg://user?id={user.id}">{user.first_name}</a>'
+    cyber = message.from_user.mention
     if len(search) < 2 or len(search) > 150:
         return
     files, offset = await get_search_results(search, offset=0)
@@ -744,35 +670,34 @@ async def auto_filter(client, message):
         )
         return
     search_key = f"{message.from_user.id}_{message.id}"
-    # File buttons as dicts
     btn = [
-        [{"text": f"🧸 {file['size']} 🌷 {file['file_name']}", "callback_data": f"file#{file['file_id']}"}]
+        [
+            InlineKeyboardButton(
+                text=f"🧸 {file['size']} 🌷 {file['file_name']}",
+                callback_data=f"file#{file['file_id']}"
+            ),
+        ]
         for file in files
     ]
-    # Language & Quality header row
     btn.insert(0, [
-        {"text": "📮Lᴀɴɢᴜᴀɢᴇs", "callback_data": f"languages#{search_key}"},
-        {"text": "Qᴜᴀʟɪᴛʏ 🎁",  "callback_data": f"qualities#{search_key}"}
+            InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
+            InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
     ])
     if offset:
-        # 🟢 Green Next button
         btn.append([
-            {"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{offset}", "style": "success"}
+            InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
         ])
-    caption = (
-        f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n"
-        f"📁𝙌𝙪𝙚𝙧𝙮 : {html.escape(search)}\n\n"
-        f"🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › <code>1</code>\n\n"
-        f"✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣S..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️"
+    caption = f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣S..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️"
+    await message.reply_text(
+        caption,
+        reply_markup=InlineKeyboardMarkup(btn),
+        quote=True
     )
-    await raw_send_message(message.chat.id, caption, btn, reply_to_message_id=message.id)
     SEARCH_CACHE.set(search_key, search)
 
 async def pm_auto_filter(client, message):
     search = message.text
-    user = message.from_user
-    # HTML-safe mention for use with parse_mode=HTML
-    cyber = f'<a href="tg://user?id={user.id}">{user.first_name}</a>'
+    cyber = message.from_user.mention
     if len(search) < 2 or len(search) > 150:
         return
     files, offset = await get_search_results(search, offset=0)
@@ -783,28 +708,29 @@ async def pm_auto_filter(client, message):
         )
         return
     search_key = f"{message.from_user.id}_{message.id}"
-    # File buttons as dicts
     btn = [
-        [{"text": f"🧸 {file['size']} 🌷 {file['file_name']}", "callback_data": f"file#{file['file_id']}"}]
+        [
+            InlineKeyboardButton(
+                text=f"🧸 {file['size']} 🌷 {file['file_name']}",
+                callback_data=f"file#{file['file_id']}"
+            ),
+        ]
         for file in files
     ]
-    # Language & Quality header row
     btn.insert(0, [
-        {"text": "📮Lᴀɴɢᴜᴀɢᴇs", "callback_data": f"languages#{search_key}"},
-        {"text": "Qᴜᴀʟɪᴛʏ 🎁",  "callback_data": f"qualities#{search_key}"}
+            InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
+            InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
     ])
     if offset:
-        # 🟢 Green Next button
         btn.append([
-            {"text": "𝗡𝗲𝘅𝘁 ⏭", "callback_data": f"next|{search_key}|{offset}", "style": "success"}
+            InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
         ])
-    caption = (
-        f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n"
-        f"📁𝙌𝙪𝙚𝙧𝙮 : {html.escape(search)}\n\n"
-        f"🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › <code>1</code>\n\n"
-        f"✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣S..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️"
+    caption = f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣S..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️"
+    await message.reply_text(
+        caption,
+        reply_markup=InlineKeyboardMarkup(btn),
+        quote=True
     )
-    await raw_send_message(message.chat.id, caption, btn, reply_to_message_id=message.id)
     SEARCH_CACHE.set(search_key, search)
     
 async def global_filters(client, message):
