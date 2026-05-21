@@ -15,7 +15,7 @@ def is_enabled(value, default):
 SESSION = environ.get('SESSION', 'Media_searcher')
 API_ID = int(environ.get('API_ID', '17904302'))
 API_HASH = environ.get('API_HASH', 'fecbfab082459d9b830a1019cf89769d')
-BOT_TOKEN = environ.get('BOT_TOKEN', '8055568410:AAHYFmtmeNRusRz7WaQ0NVHrptFrdE1ld20')
+BOT_TOKEN = environ.get('BOT_TOKEN', '8920613609:AAFTxaydAUNZVNE7M1udUl-a2sCyS-ViCuo')
 
 # Bot settings
 AUTO_DEL = int(environ.get('AUTO_DEL', 900))
@@ -37,8 +37,8 @@ AUTH_USERS = (auth_users + ADMINS) if auth_users else []
 DATABASE_NAME = environ.get('DATABASE_NAME', "CyberTG")
 COLLECTION_NAME = environ.get('COLLECTION_NAME', "Telegram-Document")
 DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://max1:max1@max1.9teyqrs.mongodb.net/?appName=max1")
-DATABASE_URI2 = environ.get('DATABASE_URI2', "mongodb+srv://max2:max2@max2.kk8oia1.mongodb.net/?appName=max2")
-DATABASE_URI3 = environ.get('DATABASE_URI3', "mongodb+srv://max3:max3@max3.docuxuo.mongodb.net/?appName=max3")
+DATABASE_URI2 = environ.get('DATABASE_URI2', "mongodb+srv://max1:max1@max1.9teyqrs.mongodb.net/?appName=max1")
+DATABASE_URI3 = environ.get('DATABASE_URI3', "mongodb+srv://max1:max1@max1.9teyqrs.mongodb.net/?appName=max1")
 
 # FSUB
 AUTH_CHANNEL = int(environ.get('AUTH_CHANNEL')) if (auth_channel := environ.get('AUTH_CHANNEL')) and id_pattern.search(auth_channel) else None
