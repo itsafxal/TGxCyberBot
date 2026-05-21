@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import logging
 
 from pyrogram import Client, filters, enums
+from pyrogram.enums import ButtonStyle
 from pyrogram.errors import FloodWait, UserIsBlocked, MessageNotModified, PeerIdInvalid, QueryIdInvalid
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto
 
@@ -660,79 +661,147 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
 async def auto_filter(client, message):
     search = message.text
     cyber = message.from_user.mention
+
     if len(search) < 2 or len(search) > 150:
         return
+
     files, offset = await get_search_results(search, offset=0)
+
     if not files:
         await message.reply(
-            f"Hᴇʏ {cyber} 💫,\nNᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ RᴇʟᴇᴇsEᴅ.✨",
+            f"Hᴇʏ {cyber} 💫,\nNᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴇsᴇᴅ.✨",
             quote=True
         )
         return
+
     search_key = f"{message.from_user.id}_{message.id}"
+
     btn = [
         [
             InlineKeyboardButton(
                 text=f"🧸 {file['size']} 🌷 {file['file_name']}",
-                callback_data=f"file#{file['file_id']}"
+                callback_data=f"file#{file['file_id']}",
+                style=ButtonStyle.DEFAULT,  # Blue
+                icon_custom_emoji_id=5440389890787281213
             ),
         ]
         for file in files
     ]
+
     btn.insert(0, [
-            InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
-            InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
+        InlineKeyboardButton(
+            text="Lᴀɴɢᴜᴀɢᴇs",
+            callback_data=f"languages#{search_key}",
+            style=ButtonStyle.PRIMARY,  # Green
+            icon_custom_emoji_id=5888584382553265934
+        ),
+
+        InlineKeyboardButton(
+            text="Qᴜᴀʟɪᴛʏ 🎁",
+            callback_data=f"qualities#{search_key}",
+            style=ButtonStyle.PRIMARY,  # Red
+            icon_custom_emoji_id=5802910664150226061
+        )
     ])
+
     if offset:
         btn.append([
-            InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
+            InlineKeyboardButton(
+                text="𝗡𝗲𝘅𝘁 ⏭",
+                callback_data=f"next|{search_key}|{offset}",
+                style=ButtonStyle.SUCCESS,
+                icon_custom_emoji_id=5210912043019822307
+            )
         ])
-    caption = f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣S..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️"
+
+    caption = (
+        f"𝗛𝗘𝗬 👋 {cyber} 🫶\n\n"
+        f"📁 Query : {search}\n\n"
+        f"🗂️ Page No › `1`\n\n"
+        f"✍️ NOTE : ⚠️ This Message Will Be Auto Deleted Within 15 Mins ❗️\n\n"
+        f"©ᶜʸᵇᵉʳᵗᵍ 🗡️"
+    )
+
     await message.reply_text(
         caption,
         reply_markup=InlineKeyboardMarkup(btn),
         quote=True
     )
+
     SEARCH_CACHE.set(search_key, search)
 
 async def pm_auto_filter(client, message):
     search = message.text
     cyber = message.from_user.mention
+
     if len(search) < 2 or len(search) > 150:
         return
+
     files, offset = await get_search_results(search, offset=0)
+
     if not files:
         await message.reply(
-            f"Hᴇʏ {cyber} 💫,\nNᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ RᴇʟᴇᴇsEᴅ.✨",
+            f"Hᴇʏ {cyber} 💫,\nNᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴇsᴇᴅ.✨",
             quote=True
         )
         return
+
     search_key = f"{message.from_user.id}_{message.id}"
+
     btn = [
         [
             InlineKeyboardButton(
                 text=f"🧸 {file['size']} 🌷 {file['file_name']}",
-                callback_data=f"file#{file['file_id']}"
+                callback_data=f"file#{file['file_id']}",
+                style=ButtonStyle.DEFAULT,  # Blue
+                icon_custom_emoji_id=5440389890787281213
             ),
         ]
         for file in files
     ]
+
     btn.insert(0, [
-            InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
-            InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
+        InlineKeyboardButton(
+            text="Lᴀɴɢᴜᴀɢᴇs",
+            callback_data=f"languages#{search_key}",
+            style=ButtonStyle.PRIMARY,  # Green
+            icon_custom_emoji_id=5888584382553265934
+        ),
+
+        InlineKeyboardButton(
+            text="Qᴜᴀʟɪᴛʏ",
+            callback_data=f"qualities#{search_key}",
+            style=ButtonStyle.PRIMARY,  # Red
+            icon_custom_emoji_id=5802910664150226061
+        )
     ])
+
     if offset:
         btn.append([
-            InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
+            InlineKeyboardButton(
+                text="𝗡𝗲𝘅𝘁",
+                callback_data=f"next|{search_key}|{offset}",
+                style=ButtonStyle.SUCCESS,
+                icon_custom_emoji_id=5210912043019822307
+            )
         ])
-    caption = f" 𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {search}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `1`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞𝙣 15 𝙈𝙞𝙣S..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️"
+
+    caption = (
+        f"𝗛𝗘𝗬 👋 {cyber} 🫶\n\n"
+        f"📁 Query : {search}\n\n"
+        f"🗂️ Page No › `1`\n\n"
+        f"✍️ NOTE : ⚠️ This Message Will Be Auto Deleted Within 15 Mins ❗️\n\n"
+        f"©ᶜʸᵇᵉʳᵗᵍ 🗡️"
+    )
+
     await message.reply_text(
         caption,
         reply_markup=InlineKeyboardMarkup(btn),
         quote=True
     )
+
     SEARCH_CACHE.set(search_key, search)
-    
+
 async def global_filters(client, message):
     """Optimized global filter check using a cached regex pattern."""
     pattern = await get_gfilters_cached()
