@@ -1,4 +1,4 @@
-pyrotgfork
+git+https://github.com/KurimuzonAkuma/kurigram
 TgCrypto
 aiohttp
 aiosqlite
