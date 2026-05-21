@@ -713,7 +713,7 @@ async def auto_filter(client, message):
                 icon_custom_emoji_id=5210912043019822307
             )
         ])
-
+    
     caption = (
         f"𝗛𝗘𝗬 👋 {cyber} 🫶\n\n"
         f"📁 Query : {search}\n\n"
@@ -792,34 +792,20 @@ async def pm_auto_filter(client, message):
         ])
 
     # ================= CAPTION ================= #
+    caption = f"""
+<emoji id=5388886459744792797>👋</emoji> 𝗛𝗘𝗬 {cyber} <emoji id=5388810262729997849>🫶</emoji>
 
-    caption = (
-        f"👋 𝗛𝗘𝗬 {cyber} 🫶\n\n"
-        f"📁 Query : {search}\n\n"
-        f"🗂️ Page No › 1 🎬\n\n"
-        f"✍️ NOTE : ⚠️ This Message Will Be Auto Deleted Within 15 Mins ❗️\n\n"
-        f"🗡️ ©ᶜʸᵇᵉʳᵗᵍ"
-    )
+<emoji id=5800835941543186089>📁</emoji> Query : {search}
 
-    # ================= PREMIUM EMOJIS ================= #
+<emoji id=5413879192267805083>🗂️</emoji> Page No › 1 <emoji id=5264919878082509254>🎬</emoji>
 
-    entities = premium_emoji(
-        caption,
-        {
-            "👋": 5388886459744792797,
-            "🫶": 5388810262729997849,
-            "📁": 5800835941543186089,
-            "🗂️": 5413879192267805083,
-            "🎬": 5264919878082509254,
-            "✍️": 5458382591121964689,
-            "⚠️": 5188463524568926712,
-            "❗️": 6312353154788758411,
-            "🗡️": 5460755126761312667
-        }
-    )
+<emoji id=5458382591121964689>✍️</emoji> NOTE :
+<emoji id=5188463524568926712>⚠️</emoji>
+This Message Will Be Auto Deleted Within 15 Mins
+<emoji id=6312353154788758411>❗️</emoji>
 
-    # ================= SEND MESSAGE ================= #
-
+<emoji id=5460755126761312667>🗡️</emoji> ©ᶜʸᵇᵉʳᵗᵍ
+"""
     await message.reply_text(
         caption,
         entities=entities,
