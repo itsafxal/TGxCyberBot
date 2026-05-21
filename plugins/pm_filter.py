@@ -741,12 +741,17 @@ async def pm_auto_filter(client, message):
 
     if not files:
         await message.reply(
-            f"Hᴇʏ {cyber} 💫,\nNᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴇsᴇᴅ.✨",
+            f"Hᴇʏ {cyber} 💫,\n"
+            f"Nᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ RᴇQᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n"
+            f"➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ.\n"
+            f"Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴇsᴇᴅ. ✨",
             quote=True
         )
         return
 
     search_key = f"{message.from_user.id}_{message.id}"
+
+    # ================= BUTTONS ================= #
 
     btn = [
         [
@@ -755,7 +760,7 @@ async def pm_auto_filter(client, message):
                 callback_data=f"file#{file['file_id']}",
                 style=ButtonStyle.DEFAULT,
                 icon_custom_emoji_id=5440389890787281213
-            ),
+            )
         ]
         for file in files
     ]
@@ -786,6 +791,8 @@ async def pm_auto_filter(client, message):
             )
         ])
 
+    # ================= CAPTION ================= #
+
     caption = (
         f"👋 𝗛𝗘𝗬 {cyber} 🫶\n\n"
         f"📁 Query : {search}\n\n"
@@ -794,13 +801,15 @@ async def pm_auto_filter(client, message):
         f"🗡️ ©ᶜʸᵇᵉʳᵗᵍ"
     )
 
+    # ================= PREMIUM EMOJIS ================= #
+
     entities = premium_emoji(
         caption,
         {
             "👋": 5388886459744792797,
             "🫶": 5388810262729997849,
             "📁": 5800835941543186089,
-            "📆": 5413879192267805083,
+            "🗂️": 5413879192267805083,
             "🎬": 5264919878082509254,
             "✍️": 5458382591121964689,
             "⚠️": 5188463524568926712,
@@ -808,6 +817,8 @@ async def pm_auto_filter(client, message):
             "🗡️": 5460755126761312667
         }
     )
+
+    # ================= SEND MESSAGE ================= #
 
     await message.reply_text(
         caption,
