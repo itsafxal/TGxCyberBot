@@ -826,17 +826,9 @@ async def auto_filter(client, message):
                 icon_custom_emoji_id=5210912043019822307
             )
         ])
-    
-    caption = (
-        f"𝗛𝗘𝗬 👋 {cyber} 🫶\n\n"
-        f"📁 Query : {search}\n\n"
-        f"🗂️ Page No › `1`\n\n"
-        f"✍️ NOTE : ⚠️ This Message Will Be Auto Deleted Within 15 Mins ❗️\n\n"
-        f"©ᶜʸᵇᵉʳᵗᵍ 🗡️"
-    )
-
+        
     await message.reply_text(
-        caption,
+        text=script.MAIN_RESULT_TXT.format(cyber, search),
         reply_markup=InlineKeyboardMarkup(btn),
         quote=True
     )
@@ -901,15 +893,8 @@ async def pm_auto_filter(client, message):
                 icon_custom_emoji_id=5210912043019822307
             )
         ])
-    caption = (
-        f"𝗛𝗘𝗬 👋 {cyber} 🫶\n\n"
-        f"📁 Query : {search}\n\n"
-        f"🗂️ Page No › `1`\n\n"
-        f"✍️ NOTE : ⚠️ This Message Will Be Auto Deleted Within 15 Mins ❗️\n\n"
-        f"©ᶜʸᵇᵉʳᵗᵍ 🗡️"
-    )
     await message.reply_text(
-        caption,
+        text=script.MAIN_RESULT_TXT.format(cyber, search),
         reply_markup=InlineKeyboardMarkup(btn),
         quote=True
     )
