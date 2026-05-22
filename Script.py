@@ -91,7 +91,7 @@ Command	Description
 /leave <chat_id>	Force bot to leave a group"""
     
     MAIN_RESULT_TXT = """𝗛𝗘𝗬 <emoji id='5413694143601842851'>👋</emoji> {cyber} <emoji id='5397890811436213746'>🫶</emoji>
-📁 Query : {search}
-🗂️ Page No › `{page}`
-✍️ NOTE : ⚠️ This Message Will Be Auto Deleted Within 15 Mins ❗️
-©ᶜʸᵇᵉʳᵗᵍ 🗡️"""
+<emoji id='5800835941543186089'>📁</emoji> Query : {search}
+<emoji id='5413879192267805083'>🗓️</emoji> Page No › `{page}`
+<emoji id='5458382591121964689'>✍️</emoji> NOTE : <emoji id='5188463524568926712'>⚠️</emoji> This Message Will Be Auto Deleted Within 15 Mins <emoji id='6312353154788758411'>❗️</emoji>
+©ᶜʸᵇᵉʳᵗᵍ <emoji id='5456140674028019486'>🗡️</emoji>"""
