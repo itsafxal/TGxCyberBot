@@ -23,7 +23,6 @@ from sql.db import get_search_results, delete_file_sql
 from utils import get_size, temp, is_requested_one, is_requested_two, add_auto_delete_message, premium_emoji
 
 # --- Configuration ---
-logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -826,9 +825,17 @@ async def auto_filter(client, message):
                 icon_custom_emoji_id=5210912043019822307
             )
         ])
-        
+    
+    caption = (
+        f"𝗛𝗘𝗬 👋 {cyber} 🫶\n\n"
+        f"📁 Query : {search}\n\n"
+        f"🗂️ Page No › `1`\n\n"
+        f"✍️ NOTE : ⚠️ This Message Will Be Auto Deleted Within 15 Mins ❗️\n\n"
+        f"©ᶜʸᵇᵉʳᵗᵍ 🗡️"
+    )
+
     await message.reply_text(
-        text=script.MAIN_RESULT_TXT.format(cyber, search),
+        caption,
         reply_markup=InlineKeyboardMarkup(btn),
         quote=True
     )
@@ -856,6 +863,8 @@ async def pm_auto_filter(client, message):
         return
 
     search_key = f"{message.from_user.id}_{message.id}"
+
+    # ================= BUTTONS ================= #
 
     btn = [
         [
@@ -893,11 +902,29 @@ async def pm_auto_filter(client, message):
                 icon_custom_emoji_id=5210912043019822307
             )
         ])
+
+    # ================= CAPTION ================= #
+    caption = f"""
+<emoji id=5388886459744792797>👋</emoji> 𝗛𝗘𝗬 {cyber} <emoji id=5388810262729997849>🫶</emoji>
+
+<emoji id=5800835941543186089>📁</emoji> Query : {search}
+
+<emoji id=5413879192267805083>🗂️</emoji> Page No › 1 <emoji id=5264919878082509254>🎬</emoji>
+
+<emoji id=5458382591121964689>✍️</emoji> NOTE :
+<emoji id=5188463524568926712>⚠️</emoji>
+This Message Will Be Auto Deleted Within 15 Mins
+<emoji id=6312353154788758411>❗️</emoji>
+
+<emoji id=5460755126761312667>🗡️</emoji> ©ᶜʸᵇᵉʳᵗᵍ
+"""
     await message.reply_text(
-        text=script.MAIN_RESULT_TXT.format(cyber, search),
+        caption,
+        parse_mode=enums.ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup(btn),
         quote=True
     )
+
     SEARCH_CACHE.set(search_key, search)
     
 async def global_filters(client, message):
