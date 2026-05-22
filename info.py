@@ -34,8 +34,8 @@ auth_users = [int(user) if id_pattern.search(user) else user for user in environ
 AUTH_USERS = (auth_users + ADMINS) if auth_users else []
 
 # MongoDB information
-DATABASE_NAME = environ.get('DATABASE_NAME', "cyber")
-COLLECTION_NAME = environ.get('COLLECTION_NAME', "cyber_files")
+DATABASE_NAME = environ.get('DATABASE_NAME', "CyberTG")
+COLLECTION_NAME = environ.get('COLLECTION_NAME', "Telegram-Document")
 DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://max1:max1@max1.9teyqrs.mongodb.net/?appName=max1")
 DATABASE_URI2 = environ.get('DATABASE_URI2', "mongodb+srv://max2:max2@max2.kk8oia1.mongodb.net/?appName=max2")
 DATABASE_URI3 = environ.get('DATABASE_URI3', "mongodb+srv://max3:max3@max3.docuxuo.mongodb.net/?appName=max3")
