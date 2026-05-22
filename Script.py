@@ -89,3 +89,9 @@ Command	Description
 /disable <chat_id> [reason]	Disable bot in a group
 /enable <chat_id>	Enable bot back in a group
 /leave <chat_id>	Force bot to leave a group"""
+    
+    MAIN_RESULT_TXT = """𝗛𝗘𝗬 👋 {cyber} 🫶
+📁 Query : {search}
+🗂️ Page No › `1`
+✍️ NOTE : ⚠️ This Message Will Be Auto Deleted Within 15 Mins ❗️
+©ᶜʸᵇᵉʳᵗᵍ 🗡️"""
