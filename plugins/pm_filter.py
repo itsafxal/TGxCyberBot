@@ -25,6 +25,7 @@ from utils import get_size, temp, is_requested_one, is_requested_two, add_auto_d
 # --- Configuration ---
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 DELETE_TXT = "🗑️ _This message and the file will be deleted in {} seconds._".format(AUTO_DEL)
 GLOBAL_FILTER_CACHE = {}
@@ -98,6 +99,7 @@ def get_file_caption(file_info):
 @Client.on_message(filters.text & filters.incoming & filters.group & filters.regex(r'^(?!\/).*'))
 async def auto_filter_handler(client, message):
     """Main handler for group messages, checking global filters then auto filters."""
+    logger.debug(f"[auto_filter_handler] user={message.from_user.id} chat={message.chat.id} text={message.text!r}")
     if not temp.AUTO_FILTER: return
     if not await global_filters(client, message):
         await auto_filter(client, message)
@@ -105,6 +107,7 @@ async def auto_filter_handler(client, message):
 @Client.on_message(filters.private & filters.text & filters.incoming & filters.regex(r'^(?!\/).*') & ~filters.forwarded)
 async def auto_filter_pm_handler(client, message):
     """Handles non-command messages in private chat."""
+    logger.debug(f"[auto_filter_pm_handler] user={message.from_user.id} text={message.text!r}")
     if not temp.AUTO_FILTER: 
         return
     if re.search(r'(?im)(?:https?://|www\.|t\.me/|telegram\.dog/)\S+|@[a-z0-9_]{5,32}\b', message.text):
@@ -126,10 +129,12 @@ async def delete_unwanted_messages(client, message):
 # --- Callback Handlers ---
 @Client.on_callback_query(filters.regex(r"^next"))
 async def next_page_cb(bot, query):
+    logger.debug(f"[next_page_cb] user={query.from_user.id} data={query.data}")
     try:
         _, search_key, offset_str = query.data.split("|")
         offset = int(offset_str)
     except ValueError:
+        logger.warning(f"[next_page_cb] Invalid pagination data: {query.data}")
         return await query.answer("Iɴᴠᴀʟɪᴅ ᴘᴀɢɪɴᴀᴛɪᴏɴ ᴅᴀᴛᴀ.", show_alert=True)
     
     cyber = query.from_user.mention
@@ -283,6 +288,7 @@ def get_all_quality_codes():
 @Client.on_callback_query(filters.regex(r"^languages#"))
 async def languages_cb_handler(client: Client, query: CallbackQuery):
     """Displays the list of available language filters."""
+    logger.debug(f"[languages_cb_handler] user={query.from_user.id} data={query.data}")
     try:
         _, search_key = query.data.split("#")
     except ValueError:
@@ -408,6 +414,7 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^qualities#"))
 async def qualities_cb_handler(client: Client, query: CallbackQuery):
     """Displays the list of available quality filters."""
+    logger.debug(f"[qualities_cb_handler] user={query.from_user.id} data={query.data}")
     try:
         _, search_key = query.data.split("#")
     except ValueError:
@@ -535,7 +542,7 @@ async def filter_quality_cb_handler(client: Client, query: CallbackQuery):
 @Client.on_callback_query()
 async def main_cb_handler(client: Client, query: CallbackQuery):
     data = query.data
-    
+    logger.debug(f"[main_cb_handler] user={query.from_user.id} data={data!r}")
     if data == "close_data":
         await query.message.delete()
 
@@ -548,7 +555,7 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
         except QueryIdInvalid:
             await query.answer("This request has expired. Please search again.", show_alert=True)
         except Exception as e:
-            logger.error(e)
+            logger.exception(e)
             await query.answer("An unexpected error occurred.", show_alert=True)
 
     elif data.startswith("checksub#"):
@@ -587,7 +594,7 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             await asyncio.sleep(e.value)
             await query.answer(f"Flood control: Please wait {e.value} seconds.", show_alert=True)
         except Exception as e:
-            logger.error(e)
+            logger.exception(e)
             await query.answer(f"An error occurred while sending the file.", show_alert=True)
 
     elif data.startswith("killfilesdq#"):
@@ -767,6 +774,7 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
 async def auto_filter(client, message):
     search = message.text
     cyber = message.from_user.mention
+    logger.debug(f"[auto_filter] user={message.from_user.id} search={search!r}")
 
     if len(search) < 2 or len(search) > 150:
         return
@@ -838,6 +846,7 @@ async def auto_filter(client, message):
 async def pm_auto_filter(client, message):
     search = message.text
     cyber = message.from_user.mention
+    logger.debug(f"[pm_auto_filter] user={message.from_user.id} search={search!r}")
 
     if len(search) < 2 or len(search) > 150:
         return
@@ -947,5 +956,5 @@ async def global_filters(client, message):
             await client.send_cached_media(message.chat.id, fileid, caption=reply_text or "", reply_markup=markup)
         return True
     except Exception as e:
-        logger.error(f"Error processing global filter response: {e}")
+        logger.exception(f"Error processing global filter response: {e}")
         return False
