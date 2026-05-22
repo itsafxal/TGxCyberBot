@@ -155,10 +155,10 @@ async def next_page_cb(bot, query):
     btn = [
         [
             InlineKeyboardButton(
-                text=f"🧸 {file['size']} 🌷 {file['file_name']}",
+                text=f" {file['size']} 🌷 {file['file_name']}",
                 callback_data=f"file#{file['file_id']}",
                 style=ButtonStyle.DEFAULT,
-                icon_custom_emoji_id=5440389890787281213
+                icon_custom_emoji_id=5397915559037785261
             ),
         ]
         for file in files
@@ -166,13 +166,13 @@ async def next_page_cb(bot, query):
 
     btn.insert(0, [
         InlineKeyboardButton(
-            text="📮Lᴀɴɢᴜᴀɢᴇs",
+            text="Lᴀɴɢᴜᴀɢᴇs",
             callback_data=f"languages#{search_key}",
             style=ButtonStyle.PRIMARY,
             icon_custom_emoji_id=5888584382553265934
         ),
         InlineKeyboardButton(
-            text="Qᴜᴀʟɪᴛʏ 🎁",
+            text="Qᴜᴀʟɪᴛʏ",
             callback_data=f"qualities#{search_key}",
             style=ButtonStyle.PRIMARY,
             icon_custom_emoji_id=5802910664150226061
@@ -183,7 +183,7 @@ async def next_page_cb(bot, query):
     if offset > 0:
         prev_offset = max(0, offset - MAX_FILES) 
         nav_buttons.append(InlineKeyboardButton(
-            "⏮ 𝗕𝗮𝗰𝗸",
+            "𝗕𝗮𝗰𝗸",
             callback_data=f"next|{search_key}|{prev_offset}",
             style=ButtonStyle.SUCCESS,
             icon_custom_emoji_id=5210912043019822307
@@ -191,7 +191,7 @@ async def next_page_cb(bot, query):
         
     if next_offset:
         nav_buttons.append(InlineKeyboardButton(
-            "𝗡𝗲𝘅𝘁 ⏭",
+            "𝗡𝗲𝘅𝘁",
             callback_data=f"next|{search_key}|{next_offset}",
             style=ButtonStyle.SUCCESS,
             icon_custom_emoji_id=5210912043019822307
@@ -216,10 +216,10 @@ def generate_main_buttons(files, offset, search_key):
     btn = [
         [
             InlineKeyboardButton(
-                text=f"🧸 {file.get('size', 'N/A')} 🌷 {file.get('file_name', 'No Name')}",
+                text=f" {file.get('size', 'N/A')} 🌷 {file.get('file_name', 'No Name')}",
                 callback_data=f"file#{file['file_id']}",
                 style=ButtonStyle.DEFAULT,
-                icon_custom_emoji_id=5440389890787281213
+                icon_custom_emoji_id=5397915559037785261
             ),
         ]
         for file in files
@@ -228,13 +228,13 @@ def generate_main_buttons(files, offset, search_key):
     # Insert Language and Quality buttons at the top
     btn.insert(0, [
         InlineKeyboardButton(
-            text="📮Lᴀɴɢᴜᴀɢᴇs",
+            text="Lᴀɴɢᴜᴀɢᴇs",
             callback_data=f"languages#{search_key}",
             style=ButtonStyle.PRIMARY,
             icon_custom_emoji_id=5888584382553265934
         ),
         InlineKeyboardButton(
-            text="Qᴜᴀʟɪᴛʏ 🎁",
+            text="Qᴜᴀʟɪᴛʏ",
             callback_data=f"qualities#{search_key}",
             style=ButtonStyle.PRIMARY,
             icon_custom_emoji_id=5802910664150226061
@@ -245,7 +245,7 @@ def generate_main_buttons(files, offset, search_key):
     if offset:
         btn.append([
             InlineKeyboardButton(
-                "𝗡𝗲𝘅𝘁 ⏭",
+                "𝗡𝗲𝘅𝘁",
                 callback_data=f"next|{search_key}|{offset}",
                 style=ButtonStyle.SUCCESS,
                 icon_custom_emoji_id=5210912043019822307
@@ -792,10 +792,10 @@ async def auto_filter(client, message):
     btn = [
         [
             InlineKeyboardButton(
-                text=f"🧸 {file['size']} 🌷 {file['file_name']}",
+                text=f" {file['size']} 🌷 {file['file_name']}",
                 callback_data=f"file#{file['file_id']}",
                 style=ButtonStyle.DEFAULT,
-                icon_custom_emoji_id=5440389890787281213
+                icon_custom_emoji_id=5397915559037785261
             ),
         ]
         for file in files
@@ -809,7 +809,7 @@ async def auto_filter(client, message):
             icon_custom_emoji_id=5888584382553265934
         ),
         InlineKeyboardButton(
-            text="Qᴜᴀʟɪᴛʏ 🎁",
+            text="Qᴜᴀʟɪᴛʏ",
             callback_data=f"qualities#{search_key}",
             style=ButtonStyle.PRIMARY,
             icon_custom_emoji_id=5802910664150226061
@@ -819,23 +819,15 @@ async def auto_filter(client, message):
     if offset:
         btn.append([
             InlineKeyboardButton(
-                text="𝗡𝗲𝘅𝘁 ⏭",
+                text="𝗡𝗲𝘅𝘁",
                 callback_data=f"next|{search_key}|{offset}",
                 style=ButtonStyle.SUCCESS,
                 icon_custom_emoji_id=5210912043019822307
             )
         ])
     
-    caption = (
-        f"𝗛𝗘𝗬 👋 {cyber} 🫶\n\n"
-        f"📁 Query : {search}\n\n"
-        f"🗂️ Page No › `1`\n\n"
-        f"✍️ NOTE : ⚠️ This Message Will Be Auto Deleted Within 15 Mins ❗️\n\n"
-        f"©ᶜʸᵇᵉʳᵗᵍ 🗡️"
-    )
-
     await message.reply_text(
-        caption,
+        text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
         reply_markup=InlineKeyboardMarkup(btn),
         quote=True
     )
@@ -867,10 +859,10 @@ async def pm_auto_filter(client, message):
     btn = [
         [
             InlineKeyboardButton(
-                text=f"🧸 {file['size']} 🌷 {file['file_name']}",
+                text=f" {file['size']} 🌷 {file['file_name']}",
                 callback_data=f"file#{file['file_id']}",
                 style=ButtonStyle.DEFAULT,
-                icon_custom_emoji_id=5440389890787281213
+                icon_custom_emoji_id=5397915559037785261
             )
         ]
         for file in files
