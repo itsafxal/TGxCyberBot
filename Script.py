@@ -92,6 +92,6 @@ Command	Description
     
     MAIN_RESULT_TXT = """𝗛𝗘𝗬 👋 {cyber} 🫶
 📁 Query : {search}
-🗂️ Page No › `1`
+🗂️ Page No › `{page}`
 ✍️ NOTE : ⚠️ This Message Will Be Auto Deleted Within 15 Mins ❗️
 ©ᶜʸᵇᵉʳᵗᵍ 🗡️"""
