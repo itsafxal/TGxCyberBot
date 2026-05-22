@@ -1,6 +1,6 @@
-
 import os
 import sys
+import logging
 import logging.config
 import asyncio
 import psutil
@@ -20,30 +20,50 @@ uvloop.install()
 
 pyroutils.MIN_CHAT_ID = -999999999999
 pyroutils.MIN_CHANNEL_ID = -100999999999999
-logging.config.fileConfig('logging.conf')
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-logging.getLogger("pyrogram").setLevel(logging.WARNING)
-logging.getLogger('apscheduler').setLevel(logging.WARNING)
-logging.getLogger("asyncio").setLevel(logging.CRITICAL -1)
 
+# --- Logging Setup ---
 class PremiumLogFormatter(logging.Formatter):
     FORMATS = {
-        logging.DEBUG: "[DEBUG] %(asctime)s - %(name)s - %(message)s",
-        logging.INFO: "[INFO] %(asctime)s - %(name)s - %(message)s",
-        logging.WARNING: "[WARNING] %(asctime)s - %(name)s - %(message)s",
-        logging.ERROR: "[ERROR] %(asctime)s - %(name)s - %(message)s",
+        logging.DEBUG:    "[DEBUG]    %(asctime)s - %(name)s - %(message)s",
+        logging.INFO:     "[INFO]     %(asctime)s - %(name)s - %(message)s",
+        logging.WARNING:  "[WARNING]  %(asctime)s - %(name)s - %(message)s",
+        logging.ERROR:    "[ERROR]    %(asctime)s - %(name)s - %(message)s",
         logging.CRITICAL: "[CRITICAL] %(asctime)s - %(name)s - %(message)s"
     }
-
     def format(self, record):
-        log_fmt = self.FORMATS.get(record.levelno)
-        formatter = logging.Formatter(log_fmt, datefmt='%Y-%m-%d %H:%M:%S')
-        return formatter.format(record)
+        fmt = self.FORMATS.get(record.levelno, self.FORMATS[logging.INFO])
+        return logging.Formatter(fmt, datefmt='%Y-%m-%d %H:%M:%S').format(record)
 
-for handler in logger.handlers:
-    if isinstance(handler, logging.StreamHandler):
-        handler.setFormatter(PremiumLogFormatter())
+# Try loading logging.conf if it exists, otherwise fall back to basicConfig
+try:
+    logging.config.fileConfig('logging.conf', disable_existing_loggers=False)
+except Exception:
+    logging.basicConfig(level=logging.DEBUG)
+
+# Root logger: ensure StreamHandler to stdout with our formatter
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
+_has_stdout_handler = any(
+    isinstance(h, logging.StreamHandler) and getattr(h, 'stream', None) is sys.stdout
+    for h in logger.handlers
+)
+if not _has_stdout_handler:
+    _console_handler = logging.StreamHandler(sys.stdout)
+    _console_handler.setFormatter(PremiumLogFormatter())
+    logger.addHandler(_console_handler)
+else:
+    for h in logger.handlers:
+        if isinstance(h, logging.StreamHandler):
+            h.setFormatter(PremiumLogFormatter())
+
+# Silence noisy third-party loggers
+logging.getLogger("pyrogram").setLevel(logging.WARNING)
+logging.getLogger("apscheduler").setLevel(logging.WARNING)
+logging.getLogger("asyncio").setLevel(logging.CRITICAL)
+logging.getLogger("motor").setLevel(logging.WARNING)
+logging.getLogger("pymongo").setLevel(logging.WARNING)
+
 
 class Bot(Client):
     def __init__(self):
@@ -184,4 +204,3 @@ try:
     app.run()
 except Exception as e:
     logger.critical(f"Bot crashed: {e}", exc_info=True)
-        
