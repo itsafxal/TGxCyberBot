@@ -152,25 +152,46 @@ async def next_page_cb(bot, query):
         [
             InlineKeyboardButton(
                 text=f"🧸 {file['size']} 🌷 {file['file_name']}",
-                callback_data=f"file#{file['file_id']}"
+                callback_data=f"file#{file['file_id']}",
+                style=ButtonStyle.DEFAULT,
+                icon_custom_emoji_id=5440389890787281213
             ),
         ]
         for file in files
     ]
 
     btn.insert(0, [
-            InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
-            InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
-        ])
+        InlineKeyboardButton(
+            text="📮Lᴀɴɢᴜᴀɢᴇs",
+            callback_data=f"languages#{search_key}",
+            style=ButtonStyle.PRIMARY,
+            icon_custom_emoji_id=5888584382553265934
+        ),
+        InlineKeyboardButton(
+            text="Qᴜᴀʟɪᴛʏ 🎁",
+            callback_data=f"qualities#{search_key}",
+            style=ButtonStyle.PRIMARY,
+            icon_custom_emoji_id=5802910664150226061
+        )
+    ])
 
     nav_buttons = []
     if offset > 0:
-        
         prev_offset = max(0, offset - MAX_FILES) 
-        nav_buttons.append(InlineKeyboardButton("⏮ 𝗕𝗮𝗰𝗸", callback_data=f"next|{search_key}|{prev_offset}"))
+        nav_buttons.append(InlineKeyboardButton(
+            "⏮ 𝗕𝗮𝗰𝗸",
+            callback_data=f"next|{search_key}|{prev_offset}",
+            style=ButtonStyle.SUCCESS,
+            icon_custom_emoji_id=5210912043019822307
+        ))
         
     if next_offset:
-        nav_buttons.append(InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{next_offset}"))
+        nav_buttons.append(InlineKeyboardButton(
+            "𝗡𝗲𝘅𝘁 ⏭",
+            callback_data=f"next|{search_key}|{next_offset}",
+            style=ButtonStyle.SUCCESS,
+            icon_custom_emoji_id=5210912043019822307
+        ))
 
     if nav_buttons:
         btn.append(nav_buttons)
@@ -192,7 +213,9 @@ def generate_main_buttons(files, offset, search_key):
         [
             InlineKeyboardButton(
                 text=f"🧸 {file.get('size', 'N/A')} 🌷 {file.get('file_name', 'No Name')}",
-                callback_data=f"file#{file['file_id']}"
+                callback_data=f"file#{file['file_id']}",
+                style=ButtonStyle.DEFAULT,
+                icon_custom_emoji_id=5440389890787281213
             ),
         ]
         for file in files
@@ -200,42 +223,57 @@ def generate_main_buttons(files, offset, search_key):
     
     # Insert Language and Quality buttons at the top
     btn.insert(0, [
-        InlineKeyboardButton(text="📮Lᴀɴɢᴜᴀɢᴇs", callback_data=f"languages#{search_key}"),
-        InlineKeyboardButton(text="Qᴜᴀʟɪᴛʏ 🎁", callback_data=f"qualities#{search_key}")
+        InlineKeyboardButton(
+            text="📮Lᴀɴɢᴜᴀɢᴇs",
+            callback_data=f"languages#{search_key}",
+            style=ButtonStyle.PRIMARY,
+            icon_custom_emoji_id=5888584382553265934
+        ),
+        InlineKeyboardButton(
+            text="Qᴜᴀʟɪᴛʏ 🎁",
+            callback_data=f"qualities#{search_key}",
+            style=ButtonStyle.PRIMARY,
+            icon_custom_emoji_id=5802910664150226061
+        )
     ])
     
     # Add pagination buttons
     if offset:
         btn.append([
-            InlineKeyboardButton("𝗡𝗲𝘅𝘁 ⏭", callback_data=f"next|{search_key}|{offset}")
+            InlineKeyboardButton(
+                "𝗡𝗲𝘅𝘁 ⏭",
+                callback_data=f"next|{search_key}|{offset}",
+                style=ButtonStyle.SUCCESS,
+                icon_custom_emoji_id=5210912043019822307
+            )
         ])
     else:
         btn.append([InlineKeyboardButton(
-            text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭", callback_data="pages")])
+            text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭",
+            callback_data="pages",
+            style=ButtonStyle.SECONDARY,
+            icon_custom_emoji_id=5215354932598350357
+        )])
 
     return btn
 
 def get_all_language_codes():
     """Returns a list of all language codes in lowercase."""
     try:
-        # Assuming LANGUAGES is a dict like {'English': 'eng', 'Hindi': 'hin'}
         return [code.lower() for code in LANGUAGES.values()]
     except AttributeError:
-        # Fallback if LANGUAGES is structured differently
         return [str(lang).lower() for lang in LANGUAGES]
 
 def get_language_name_from_code(lang_code):
     """Returns the full language name from its code."""
     try:
         inverted_languages = {v.lower(): k for k, v in LANGUAGES.items()}
-        # Default to uppercasing the code if not found
         return inverted_languages.get(lang_code.lower(), lang_code.upper()).capitalize()
     except Exception:
         return lang_code.upper()
         
 def get_all_quality_codes():
     """Returns a list of all quality codes in lowercase."""
-    # Assuming QUALITIES is a list like ['480P', '720P', '1080P']
     return [q.lower() for q in QUALITIES]
 
 # ---------------------------
@@ -268,21 +306,33 @@ async def languages_cb_handler(client: Client, query: CallbackQuery):
         name1, code1 = items[i]
         row = [InlineKeyboardButton(
             text=name1, 
-            callback_data=f"fl#{code1.lower()}#{search_key}"
+            callback_data=f"fl#{code1.lower()}#{search_key}",
+            style=ButtonStyle.DEFAULT,
+            icon_custom_emoji_id=5888584382553265934
         )]
         if i + 1 < len(items):
             name2, code2 = items[i + 1]
             row.append(InlineKeyboardButton(
                 text=name2, 
-                callback_data=f"fl#{code2.lower()}#{search_key}"
+                callback_data=f"fl#{code2.lower()}#{search_key}",
+                style=ButtonStyle.DEFAULT,
+                icon_custom_emoji_id=5888584382553265934
             ))
         btn.append(row)
 
     btn.insert(0, [InlineKeyboardButton(
-        text="⇊ ꜱᴇʟᴇᴄᴛ ʟᴀɴɢᴜᴀɢᴇ ⇊", callback_data="ident")])
+        text="⇊ ꜱᴇʟᴇᴄᴛ ʟᴀɴɢᴜᴀɢᴇ ⇊",
+        callback_data="ident",
+        style=ButtonStyle.SECONDARY,
+        icon_custom_emoji_id=5215354932598350357
+    )])
             
-    btn.append([InlineKeyboardButton(text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭",
-                             callback_data=f"next|{search_key}|0")])
+    btn.append([InlineKeyboardButton(
+        text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭",
+        callback_data=f"next|{search_key}|0",
+        style=ButtonStyle.SUCCESS,
+        icon_custom_emoji_id=5210912043019822307
+    )])
 
     await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
     await query.answer()
@@ -311,18 +361,13 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
     search_words = original_search_query.lower().split()
     all_language_codes = get_all_language_codes()
 
-    # **CRITICAL FIX**: Remove any existing language code to ensure only one is active.
-    # Base query now contains the original search terms PLUS any active quality filter.
     base_query_words = [word for word in search_words if word not in all_language_codes]
     
-    # Check if the requested language is already applied (for toggling off/back to base)
     if lower_lang_code in search_words:
-        # Toggling off the language filter. The new search is just the base query.
         new_filtered_search = " ".join(base_query_words)
         selected_language_name = get_language_name_from_code(lower_lang_code)
         alert_message_success = f"❌ Lᴀɴɢᴜᴀɢᴇ ғɪʟᴛᴇʀ ʀᴇᴍᴏᴠᴇᴅ: {selected_language_name} Sᴜᴄᴄᴇsғᴜʟʟʏ✅"
     else:
-        # Applying a new language filter. Add it to the base query.
         base_query_words.append(lower_lang_code)
         new_filtered_search = " ".join(base_query_words)
         selected_language_name = get_language_name_from_code(lower_lang_code)
@@ -332,7 +377,6 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
         files, offset = await get_search_results(new_filtered_search, offset=0)
         
         if not files:
-            # Revert to original search results if no files are found with the filter
             files_revert, offset_revert = await get_search_results(original_search_query, offset=0)
             revert_btn = generate_main_buttons(files_revert, offset_revert, search_key)
             
@@ -343,10 +387,8 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
             )
 
             await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(revert_btn))
-            # Don't update SEARCH_CACHE here, keep the original query
             return
 
-        # Update the cache with the new filtered query
         SEARCH_CACHE.set(search_key, new_filtered_search)
         btn = generate_main_buttons(files, offset, search_key)
 
@@ -357,7 +399,6 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
         await query.answer(alert_message_success, show_alert=True)
         pass
     except Exception as e:
-        # logger.exception(e) # Use your logger
         await query.answer("Aɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴅᴜʀɪɴɢ ʟᴀɴɢᴜᴀɢᴇ sᴇᴀʀᴄʜ.", show_alert=True)
 
 # ---------------------------
@@ -390,57 +431,73 @@ async def qualities_cb_handler(client: Client, query: CallbackQuery):
     for i in range(0, len(QUALITIES), 2):
         q1 = QUALITIES[i]
         row = [InlineKeyboardButton(
-            text=q1, callback_data=f"fq#{q1.lower()}#{search_key}")]
+            text=q1,
+            callback_data=f"fq#{q1.lower()}#{search_key}",
+            style=ButtonStyle.DEFAULT,
+            icon_custom_emoji_id=5802910664150226061
+        )]
         if i + 1 < len(QUALITIES):
             q2 = QUALITIES[i + 1]
             row.append(InlineKeyboardButton(
-                text=q2, callback_data=f"fq#{q2.lower()}#{search_key}"))
+                text=q2,
+                callback_data=f"fq#{q2.lower()}#{search_key}",
+                style=ButtonStyle.DEFAULT,
+                icon_custom_emoji_id=5802910664150226061
+            ))
         btn.append(row)
 
     btn.insert(0, [
-        InlineKeyboardButton(text="⇊ ꜱᴇʟᴇᴄᴛ ǫᴜᴀʟɪᴛʏ ⇊", callback_data="ident")
+        InlineKeyboardButton(
+            text="⇊ ꜱᴇʟᴇᴄᴛ ǫᴜᴀʟɪᴛʏ ⇊",
+            callback_data="ident",
+            style=ButtonStyle.SECONDARY,
+            icon_custom_emoji_id=5215354932598350357
+        )
     ])
 
     btn.append([
-        InlineKeyboardButton(text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭",
-                             callback_data=f"next|{search_key}|0")
+        InlineKeyboardButton(
+            text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭",
+            callback_data=f"next|{search_key}|0",
+            style=ButtonStyle.SUCCESS,
+            icon_custom_emoji_id=5210912043019822307
+        )
     ])
 
     await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
     await query.answer()
 
 @Client.on_callback_query(filters.regex(r"^fq#"))
-async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
+async def filter_quality_cb_handler(client: Client, query: CallbackQuery):
     """Handles the application of a quality filter."""
     try:
         _, qual, search_key = query.data.split("#")
     except ValueError:
-        return await query.answer("Iɴᴠᴀʟɪᴅ ᴏ̨ᴜᴀʟɪᴛʏ ғɪʟᴛᴇʀ ᴅᴀᴛᴀ.", show_alert=True)
+        return await query.answer("Iɴᴠᴀʟɪᴅ ǫᴜᴀʟɪᴛʏ ғɪʟᴛᴇʀ ᴅᴀᴛᴀ.", show_alert=True)
 
     original_search_query = SEARCH_CACHE.get(search_key)
 
     if not original_search_query:
         return await query.answer("Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ. 🔰", show_alert=True)
 
-    # Check permission
     requested_user_id = int(search_key.split("_")[0])
     if query.from_user.id != requested_user_id:
-        return await query.answer(f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...", show_alert=True)
+        return await query.answer(
+            f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\n"
+            f"ᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
+            show_alert=True,
+        )
 
     qual_lower = qual.lower()
     search_words = original_search_query.lower().split()
     all_quality_codes = get_all_quality_codes()
-    
-    # **CRITICAL FIX**: Remove any existing quality code to ensure only one is active.
-    # Base query now contains the original search terms PLUS any active language filter.
+
     base_query_words = [word for word in search_words if word not in all_quality_codes]
-    
+
     if qual_lower in search_words:
-        # Toggling off the quality filter. The new search is just the base query.
         new_filtered_search = " ".join(base_query_words)
         alert_message = f"❌ Qᴜᴀʟɪᴛʏ ғɪʟᴛᴇʀ ʀᴇᴍᴏᴠᴇᴅ: {qual.upper()} Sᴜᴄᴄᴇsғᴜʟʟʏ✅"
     else:
-        # Applying a new quality filter. Add it to the base query.
         base_query_words.append(qual_lower)
         new_filtered_search = " ".join(base_query_words)
         alert_message = f"Yᴏᴜʀ ғɪʟᴇs ᴀʀᴇ ɴᴏᴡ ғɪʟᴛᴇʀᴇᴅ ᴛᴏ: {qual.upper()} Sᴜᴄᴄᴇsғᴜʟʟʏ✅"
@@ -449,7 +506,6 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
         files, offset = await get_search_results(new_filtered_search, offset=0)
         
         if not files:
-        
             files_revert, offset_revert = await get_search_results(original_search_query, offset=0)
             revert_btn = generate_main_buttons(files_revert, offset_revert, search_key)
             
@@ -459,10 +515,8 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
             )
             
             await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(revert_btn))
-            # Don't update SEARCH_CACHE here, keep the original query
             return
 
-        # Update the cache with the new filtered query
         SEARCH_CACHE.set(search_key, new_filtered_search)
         btn = generate_main_buttons(files, offset, search_key)
 
@@ -473,7 +527,6 @@ async def filter_qualities_cb_handler(client: Client, query: CallbackQuery):
         await query.answer(alert_message, show_alert=True)
         pass
     except Exception as e:
-        # logger.exception(e) # Use your logger
         await query.answer("Aɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴅᴜʀɪɴɢ ᴏ̨ᴜᴀʟɪᴛʏ sᴇᴀʀᴄʜ.", show_alert=True)
         
 ##############################################################################################################################################################################################################
@@ -501,7 +554,6 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
     elif data.startswith("checksub#"):
         ident, file_id = data.split("#")
         
-        # Improved force-sub logic
         unjoined_channels = []
         if temp.REQ_CHANNEL1 and not await is_requested_one(client, query):
             unjoined_channels.append("first")
@@ -528,7 +580,6 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             )
             delete_reply = await query.message.reply(DELETE_TXT, reply_to_message_id=sent_msg.id, parse_mode=enums.ParseMode.MARKDOWN)
             
-            # Efficiently delete all related messages after timeout
             await asyncio.sleep(AUTO_DEL)
             await asyncio.gather(delete_reply.delete(), query.message.delete(), sent_msg.delete(), return_exceptions=True)
             
@@ -544,7 +595,6 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
         msg = await query.message.edit_text(f"🔎 **Step 1/3: Fetching all file IDs for** `{keyword}`**. Please wait...**")
     
         try:
-            # Step 1: Fetch all unique file IDs from MongoDB
             unique_ids_to_delete = await fetch_mongo_ids_by_keyword(keyword)
             
             if not unique_ids_to_delete:
@@ -554,12 +604,10 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             
             await msg.edit_text(f"🗑️ **Step 2/3: Deleting `{total_found}` files from MongoDB collections...**")
     
-            # Step 2: Delete from all MongoDB collections
             mongo_deleted_count = 0
     
             await msg.edit_text(f"🗃️ **Step 3/3: Deleting `{total_found}` files from SQLite database...**")
     
-            # Step 3: Delete from SQLite database
             sql_deleted_count = 0
             for file_id in unique_ids_to_delete:
                 result = await Media2.collection.delete_one({'_id': file_id})
@@ -581,6 +629,7 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
         except Exception as e:
             logger.error(f"Error during combined deletion: {e}", exc_info=True)
             await msg.edit_text(f'❌ **An unexpected error occurred:** `{e}`')
+
     elif query.data == "abc":
         await query.answer("Tʜɪs ғᴇᴀᴛᴜʀᴇ ᴡɪʟʟ ʙᴇ ᴀᴅᴅ sᴏᴏɴ 😉", show_alert=True)
     elif query.data == "efg":
@@ -588,12 +637,32 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
 
     elif data == "start":
         buttons = [[
-            InlineKeyboardButton('➜ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ➜', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
+            InlineKeyboardButton(
+                '➜ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ➜',
+                url=f'http://t.me/{temp.U_NAME}?startgroup=true',
+                style=ButtonStyle.PRIMARY,
+                icon_custom_emoji_id=5215354932598350357
+            )
         ],[
-            InlineKeyboardButton("⭐ Cᴏɴᴛᴀᴄᴛ Aᴅᴍɪɴ Fᴏʀ Cᴏᴍᴘʟᴀɪɴᴛ ⭐", url=f'https://cybertg.vercel.app')
+            InlineKeyboardButton(
+                "⭐ Cᴏɴᴛᴀᴄᴛ Aᴅᴍɪɴ Fᴏʀ Cᴏᴍᴘʟᴀɪɴᴛ ⭐",
+                url=f'https://cybertg.vercel.app',
+                style=ButtonStyle.SECONDARY,
+                icon_custom_emoji_id=5215354932598350357
+            )
         ],[
-            InlineKeyboardButton('✜ ʜᴇʟᴘ', callback_data="help"),
-            InlineKeyboardButton('✜ ᴀʙᴏᴜᴛ', callback_data="about")
+            InlineKeyboardButton(
+                '✜ ʜᴇʟᴘ',
+                callback_data="help",
+                style=ButtonStyle.DEFAULT,
+                icon_custom_emoji_id=5215354932598350357
+            ),
+            InlineKeyboardButton(
+                '✜ ᴀʙᴏᴜᴛ',
+                callback_data="about",
+                style=ButtonStyle.DEFAULT,
+                icon_custom_emoji_id=5215354932598350357
+            )
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         await query.message.edit_text(
@@ -602,10 +671,25 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
         )
     elif data == "help":
         buttons = [[
-            InlineKeyboardButton('🍷 DᴀᴛᴀBᴀsᴇ Sᴛᴀᴛᴜs 🍷', callback_data="stats")
+            InlineKeyboardButton(
+                '🍷 DᴀᴛᴀBᴀsᴇ Sᴛᴀᴛᴜs 🍷',
+                callback_data="stats",
+                style=ButtonStyle.PRIMARY,
+                icon_custom_emoji_id=5215354932598350357
+            )
         ],[
-            InlineKeyboardButton('☘ ᴀʙᴏᴜᴛ', callback_data="about"),
-            InlineKeyboardButton('🏡 ʜᴏᴍᴇ', callback_data="start")
+            InlineKeyboardButton(
+                '☘ ᴀʙᴏᴜᴛ',
+                callback_data="about",
+                style=ButtonStyle.DEFAULT,
+                icon_custom_emoji_id=5215354932598350357
+            ),
+            InlineKeyboardButton(
+                '🏡 ʜᴏᴍᴇ',
+                callback_data="start",
+                style=ButtonStyle.DEFAULT,
+                icon_custom_emoji_id=5215354932598350357
+            )
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         await query.message.edit_text(
@@ -615,10 +699,25 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
     elif data == "about":
         print("about")
         buttons = [[
-            InlineKeyboardButton('🌐 Rᴇᴘᴏ 🌐', url=f"https://github.com/CyberTG")
+            InlineKeyboardButton(
+                '🌐 Rᴇᴘᴏ 🌐',
+                url=f"https://github.com/CyberTG",
+                style=ButtonStyle.PRIMARY,
+                icon_custom_emoji_id=5215354932598350357
+            )
         ],[
-            InlineKeyboardButton('🕵‍♂ ʜᴇʟᴘ', callback_data="help"),
-            InlineKeyboardButton('🏡 ʜᴏᴍᴇ', callback_data="start")
+            InlineKeyboardButton(
+                '🕵‍♂ ʜᴇʟᴘ',
+                callback_data="help",
+                style=ButtonStyle.DEFAULT,
+                icon_custom_emoji_id=5215354932598350357
+            ),
+            InlineKeyboardButton(
+                '🏡 ʜᴏᴍᴇ',
+                callback_data="start",
+                style=ButtonStyle.DEFAULT,
+                icon_custom_emoji_id=5215354932598350357
+            )
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         await query.message.edit_text(
@@ -634,7 +733,6 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
         users = await db.total_users_count()
         chats = await db.total_chat_count()
 
-    # Calculate DB sizes
         try:
             stats_db1 = await clientDB.command('dbStats')
             used_dbSize1 = (stats_db1['dataSize'] / (1024 * 1024)) + (stats_db1['indexSize'] / (1024 * 1024))
@@ -652,9 +750,17 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             used_dbSize3 = (stats_db3['dataSize'] / (1024 * 1024)) + (stats_db3['indexSize'] / (1024 * 1024))
         except Exception:
             used_dbSize3 = 0.0
+
         await query.message.edit_text(
             text=script.STATUS_TXT.format(total, users, chats, used_dbSize1, used_dbSize2, used_dbSize3),
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('🏡 ʜᴏᴍᴇ', callback_data='start')]]),
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    '🏡 ʜᴏᴍᴇ',
+                    callback_data='start',
+                    style=ButtonStyle.DEFAULT,
+                    icon_custom_emoji_id=5215354932598350357
+                )
+            ]]),
             parse_mode=enums.ParseMode.HTML
         )
 
@@ -681,7 +787,7 @@ async def auto_filter(client, message):
             InlineKeyboardButton(
                 text=f"🧸 {file['size']} 🌷 {file['file_name']}",
                 callback_data=f"file#{file['file_id']}",
-                style=ButtonStyle.DEFAULT,  # Blue
+                style=ButtonStyle.DEFAULT,
                 icon_custom_emoji_id=5440389890787281213
             ),
         ]
@@ -692,14 +798,13 @@ async def auto_filter(client, message):
         InlineKeyboardButton(
             text="Lᴀɴɢᴜᴀɢᴇs",
             callback_data=f"languages#{search_key}",
-            style=ButtonStyle.PRIMARY,  # Green
+            style=ButtonStyle.PRIMARY,
             icon_custom_emoji_id=5888584382553265934
         ),
-
         InlineKeyboardButton(
             text="Qᴜᴀʟɪᴛʏ 🎁",
             callback_data=f"qualities#{search_key}",
-            style=ButtonStyle.PRIMARY,  # Red
+            style=ButtonStyle.PRIMARY,
             icon_custom_emoji_id=5802910664150226061
         )
     ])
@@ -772,7 +877,6 @@ async def pm_auto_filter(client, message):
             style=ButtonStyle.PRIMARY,
             icon_custom_emoji_id=5888584382553265934
         ),
-
         InlineKeyboardButton(
             text="Qᴜᴀʟɪᴛʏ",
             callback_data=f"qualities#{search_key}",
@@ -825,7 +929,7 @@ async def global_filters(client, message):
     if not match:
         return False
         
-    keyword = match.group(1) # The matched keyword
+    keyword = match.group(1)
     reply_text, btn, alert, fileid = await find_gfilter('gfilters', keyword)
     
     if not reply_text and fileid == "None":
