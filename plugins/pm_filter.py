@@ -771,8 +771,8 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
         )
 
 async def auto_filter(client, message):
-    search = message.text
     cyber = message.from_user.mention
+    search = message.text
     logger.debug(f"[auto_filter] user={message.from_user.id} search={search!r}")
 
     if len(search) < 2 or len(search) > 150:
@@ -843,8 +843,8 @@ async def auto_filter(client, message):
     SEARCH_CACHE.set(search_key, search)
 
 async def pm_auto_filter(client, message):
-    search = message.text
     cyber = message.from_user.mention
+    search = message.text
     logger.debug(f"[pm_auto_filter] user={message.from_user.id} search={search!r}")
 
     if len(search) < 2 or len(search) > 150:
