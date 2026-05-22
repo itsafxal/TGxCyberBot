@@ -255,7 +255,7 @@ def generate_main_buttons(files, offset, search_key):
         btn.append([InlineKeyboardButton(
             text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭",
             callback_data="pages",
-            style=ButtonStyle.SECONDARY,
+            style=ButtonStyle.DEFAULT,
             icon_custom_emoji_id=5215354932598350357
         )])
 
@@ -328,7 +328,7 @@ async def languages_cb_handler(client: Client, query: CallbackQuery):
     btn.insert(0, [InlineKeyboardButton(
         text="⇊ ꜱᴇʟᴇᴄᴛ ʟᴀɴɢᴜᴀɢᴇ ⇊",
         callback_data="ident",
-        style=ButtonStyle.SECONDARY,
+        style=ButtonStyle.DEFAULT,
         icon_custom_emoji_id=5215354932598350357
     )])
             
@@ -456,7 +456,7 @@ async def qualities_cb_handler(client: Client, query: CallbackQuery):
         InlineKeyboardButton(
             text="⇊ ꜱᴇʟᴇᴄᴛ ǫᴜᴀʟɪᴛʏ ⇊",
             callback_data="ident",
-            style=ButtonStyle.SECONDARY,
+            style=ButtonStyle.DEFAULT,
             icon_custom_emoji_id=5215354932598350357
         )
     ])
@@ -653,7 +653,7 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             InlineKeyboardButton(
                 "⭐ Cᴏɴᴛᴀᴄᴛ Aᴅᴍɪɴ Fᴏʀ Cᴏᴍᴘʟᴀɪɴᴛ ⭐",
                 url=f'https://cybertg.vercel.app',
-                style=ButtonStyle.SECONDARY,
+                style=ButtonStyle.DEFAULT,
                 icon_custom_emoji_id=5215354932598350357
             )
         ],[
