@@ -910,7 +910,6 @@ async def pm_auto_filter(client, message):
     )
     await message.reply_text(
         caption,
-        entities=entities,
         reply_markup=InlineKeyboardMarkup(btn),
         quote=True
     )
