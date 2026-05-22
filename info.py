@@ -15,7 +15,7 @@ def is_enabled(value, default):
 SESSION = environ.get('SESSION', 'Media_searcher')
 API_ID = int(environ.get('API_ID', '17904302'))
 API_HASH = environ.get('API_HASH', 'fecbfab082459d9b830a1019cf89769d')
-BOT_TOKEN = environ.get('BOT_TOKEN', '8049300100:AAFjgFkdPHVjhoze5AT0W7TaKwYXe7mx-vA')
+BOT_TOKEN = environ.get('BOT_TOKEN', '8055568410:AAHYFmtmeNRusRz7WaQ0NVHrptFrdE1ld20')
 
 # Bot settings
 AUTO_DEL = int(environ.get('AUTO_DEL', 900))
@@ -36,9 +36,9 @@ AUTH_USERS = (auth_users + ADMINS) if auth_users else []
 # MongoDB information
 DATABASE_NAME = environ.get('DATABASE_NAME', "cyber")
 COLLECTION_NAME = environ.get('COLLECTION_NAME', "cyber_files")
-DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://Tessa1:Tessa1@cluster0.0icuc4y.mongodb.net/?appName=Cluster0")
-DATABASE_URI2 = environ.get('DATABASE_URI2', "mongodb+srv://Tessa2:Tessa2@cluster0.r3zwefc.mongodb.net/?appName=Cluster0")
-DATABASE_URI3 = environ.get('DATABASE_URI3', "mongodb+srv://Tessa3:Tessa3@cluster0.oqu8fh8.mongodb.net/?appName=Cluster0")
+DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://max1:max1@max1.9teyqrs.mongodb.net/?appName=max1")
+DATABASE_URI2 = environ.get('DATABASE_URI2', "mongodb+srv://max2:max2@max2.kk8oia1.mongodb.net/?appName=max2")
+DATABASE_URI3 = environ.get('DATABASE_URI3', "mongodb+srv://max3:max3@max3.docuxuo.mongodb.net/?appName=max3")
 
 
 # FSUB
