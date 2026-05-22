@@ -203,7 +203,7 @@ async def next_page_cb(bot, query):
     try:
         current_page = (offset // MAX_FILES) + 1
         await query.edit_message_text(
-            f"𝗛𝗘𝗬👋 {cyber} 🫶\n\n📁𝙌𝙪𝙚𝙧𝙮 : {req}\n\n🗂️𝑷𝒂𝒈𝒆 𝑵𝒐 › `{current_page}`\n\n✍️ 𝙉𝙊𝙏𝙀 : ⚠️𝙏𝙝𝙞𝙨 𝙈𝙚𝙨𝙨𝙖𝙜𝙚 𝙒𝙞𝙡𝙡 𝘽𝙚 𝘼𝙪𝙩𝙤-𝙙𝙚𝙡𝙚𝙩𝙚ᴅ 𝙒𝙞𝙩𝙝𝙞ɴ 15 𝙈𝙞ɴS..❗️\n ©ᶜʸᵇᵉʳᵗᵍ🗡️",
+            text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=req, page=current_page),
             reply_markup=InlineKeyboardMarkup(btn)
         )
     except MessageNotModified:
@@ -902,7 +902,7 @@ async def pm_auto_filter(client, message):
         ])
  
     await message.reply_text(
-        text=script.MAIN_RESULT_TXT.format(cyber, search),
+        text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
         parse_mode=enums.ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup(btn),
         quote=True
