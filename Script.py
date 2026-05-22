@@ -90,7 +90,7 @@ Command	Description
 /enable <chat_id>	Enable bot back in a group
 /leave <chat_id>	Force bot to leave a group"""
     
-    MAIN_RESULT_TXT = """𝗛𝗘𝗬 👋 {cyber} 🫶
+    MAIN_RESULT_TXT = """𝗛𝗘𝗬 <emoji id='5413694143601842851'>👋</emoji> {cyber} <emoji id='5397890811436213746'>🫶</emoji>
 📁 Query : {search}
 🗂️ Page No › `{page}`
 ✍️ NOTE : ⚠️ This Message Will Be Auto Deleted Within 15 Mins ❗️
