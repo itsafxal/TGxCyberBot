@@ -519,9 +519,9 @@ async def restart(b, m):
 async def delete(bot, message):
     # Use the walrus operator (:=) to check for and assign variables in one line
     if not (reply := message.reply_to_message) or not (media := reply.document or reply.video or reply.audio):
-        return await message.reply('Reply to a file with /delete.', quote=True)
+        return await message.reply('Reply to a file with /delete.')
 
-    msg = await message.reply("Processing...⏳", quote=True)
+    msg = await message.reply("Processing...⏳")
     try:
         file_id, _ = unpack_new_file_id(media.file_id)
         deleted_from = []
@@ -578,7 +578,7 @@ async def delete_all_index(bot, message):
         'This will delete all indexed files.\nDo you want to continue??',
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(text="YES", callback_data="autofilter_delete")],
                                             [InlineKeyboardButton(text="CANCEL", callback_data="close_data")]]),
-        quote=True,
+        
     )
 
 @Client.on_callback_query(filters.regex(r'^autofilter_delete'))
