@@ -1,0 +1,51 @@
+# Environment variables - NEVER commit these
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+wheels/
+pip-wheel-metadata/
+.installed.cfg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# Session files (Pyrogram/Telethon)
+*.session
+*.session-journal
+
+# Logs
+*.log
+logs/
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
