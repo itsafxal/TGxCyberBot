@@ -10,14 +10,14 @@ from info import ADMINS
 async def addgfilter(client, message):
     args = message.text.html.split(None, 1)
     if len(args) < 2:
-        await message.reply_text("Command Incomplete :(", quote=True)
+        await message.reply_text("Command Incomplete :(")
         return
 
     extracted = split_quotes(args[1])
     text = extracted[0].lower()
 
     if not message.reply_to_message and len(extracted) < 2:
-        await message.reply_text("Add some content to save your filter!", quote=True)
+        await message.reply_text("Add some content to save your filter!")
         return
 
     reply_text, btn, alert, fileid = None, None, None, None
@@ -25,7 +25,7 @@ async def addgfilter(client, message):
     if len(extracted) >= 2 and not message.reply_to_message:
         reply_text, btn, alert = gfilterparser(extracted[1], text)
         if not reply_text:
-            await message.reply_text("You cannot have buttons alone, give some text to go with it!", quote=True)
+            await message.reply_text("You cannot have buttons alone, give some text to go with it!")
             return
     elif message.reply_to_message:
         rm = message.reply_to_message.reply_markup
@@ -49,7 +49,7 @@ async def addgfilter(client, message):
         await add_gfilter('gfilters', text, reply_text, btn, fileid, alert)
         await message.reply_text(
             f"GFilter for  `{text}`  added",
-            quote=True,
+            
             parse_mode=enums.ParseMode.MARKDOWN
         )
 
@@ -59,7 +59,7 @@ async def get_all_gfilters(client, message):
     texts = await get_gfilters('gfilters')
     count = await count_gfilters('gfilters')
     if not count:
-        await message.reply_text("There are no active gfilters.", quote=True)
+        await message.reply_text("There are no active gfilters.")
         return
 
     gfilterlist = f"Total number of gfilters : {count}\n\n"
@@ -69,9 +69,9 @@ async def get_all_gfilters(client, message):
     if len(gfilterlist) > 4096:
         with io.BytesIO(gfilterlist.replace("`", "").encode()) as keyword_file:
             keyword_file.name = "keywords.txt"
-            await message.reply_document(document=keyword_file, quote=True)
+            await message.reply_document(document=keyword_file)
     else:
-        await message.reply_text(text=gfilterlist, quote=True, parse_mode=enums.ParseMode.MARKDOWN)
+        await message.reply_text(text=gfilterlist, parse_mode=enums.ParseMode.MARKDOWN)
 
 
 @Client.on_message(filters.command('delg') & filters.incoming & filters.user(ADMINS))
@@ -85,7 +85,7 @@ async def deletegfilter(client, message):
             "<i>Mention the gfiltername which you wanna delete!</i>\n\n"
             "<code>/delg gfiltername</code>\n\n"
             "Use /viewgfilters to view all available gfilters",
-            quote=True
+            
         )
 
 
@@ -97,7 +97,7 @@ async def delallgfilters(client, message):
             [[InlineKeyboardButton(text="YES", callback_data="gfiltersdeleteallconfirm")],
              [InlineKeyboardButton(text="CANCEL", callback_data="gfiltersdeleteallcancel")]]
         ),
-        quote=True
+        
     )
 
 @Client.on_callback_query(filters.regex('^gfiltersdeleteall'))
@@ -107,5 +107,3 @@ async def delete_all_gfilters_callback(client, callback_query):
         await del_allg(callback_query.message, 'gfilters')
     else:
         await callback_query.message.edit_text("Deletion cancelled")
-
-
