@@ -783,7 +783,7 @@ async def auto_filter(client, message):
     if not files:
         await message.reply(
             f"Hᴇʏ {cyber} 💫,\nNᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴇsᴇᴅ.✨",
-            quote=True
+            
         )
         return
 
@@ -829,7 +829,7 @@ async def auto_filter(client, message):
     await message.reply_text(
         text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
         reply_markup=InlineKeyboardMarkup(btn),
-        quote=True
+        
     )
 
     SEARCH_CACHE.set(search_key, search)
@@ -850,7 +850,7 @@ async def pm_auto_filter(client, message):
             f"Nᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ RᴇQᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n"
             f"➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ.\n"
             f"Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴇsᴇᴅ. ✨",
-            quote=True
+            
         )
         return
 
@@ -897,7 +897,7 @@ async def pm_auto_filter(client, message):
         text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
         parse_mode=enums.ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup(btn),
-        quote=True
+        
     )
 
     SEARCH_CACHE.set(search_key, search)
