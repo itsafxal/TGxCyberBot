@@ -29,7 +29,7 @@ async def showid(client, message):
             f"🆔 <b>Telegram ID:</b> <code>{user_id}</code>\n"
             f"🌐 <b>Data Centre:</b> <code>{dc_id}</code>\n"
             f"────────────────────",
-            quote=True,
+            
             parse_mode=enums.ParseMode.HTML # Ensure HTML is explicitly set
         )
 
@@ -63,7 +63,7 @@ async def showid(client, message):
         _id_text += "────────────────────"
         await message.reply_text(
             _id_text,
-            quote=True,
+            
             parse_mode=enums.ParseMode.HTML
         )
 
@@ -141,7 +141,7 @@ async def who_is(client, message):
         reply_markup = InlineKeyboardMarkup(buttons)
         await message.reply_photo(
             photo=local_user_photo,
-            quote=True,
+            
             reply_markup=reply_markup,
             caption=message_out_str,
             parse_mode=enums.ParseMode.HTML,
@@ -156,7 +156,7 @@ async def who_is(client, message):
         await message.reply_text(
             text=message_out_str,
             reply_markup=reply_markup,
-            quote=True,
+            
             disable_notification=True,
             parse_mode=enums.ParseMode.HTML
         )
