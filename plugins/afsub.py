@@ -548,10 +548,10 @@ async def get_fsub_chats(bot, m):
         else:
             all_channels_text += "**─── Channel 3 ───**\n  __No Force Subscribe channel set for slot 3.__"
 
-        await m.reply_text(all_channels_text, disable_web_page_preview=True, quote=True, parse_mode=enums.ParseMode.MARKDOWN)
+        await m.reply_text(all_channels_text, disable_web_page_preview=True, parse_mode=enums.ParseMode.MARKDOWN)
 
     except Exception as e:
-        await m.reply_text(f"An error occurred while fetching channels: `{str(e)}`", quote=True, parse_mode=enums.ParseMode.MARKDOWN)
+        await m.reply_text(f"An error occurred while fetching channels: `{str(e)}`", parse_mode=enums.ParseMode.MARKDOWN)
 
 
 @Client.on_message(filters.command("delsub1") & filters.user(ADMINS))
