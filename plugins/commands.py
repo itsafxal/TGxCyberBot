@@ -116,7 +116,6 @@ async def start(client, message):
         return
 
     if user_id and not await db.is_user_exist(user_id):
-
     await db.add_user(
         user_id,
         message.from_user.first_name
