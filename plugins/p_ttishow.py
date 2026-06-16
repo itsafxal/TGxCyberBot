@@ -11,18 +11,54 @@ from pyrogram.errors import ChatAdminRequired
 @Client.on_message(filters.new_chat_members & filters.group)
 async def save_group(bot, message):
     r_j_check = [u.id for u in message.new_chat_members]
+
     if temp.ME in r_j_check:
+
         if not await db.get_chat(message.chat.id):
+
             total = await bot.get_chat_members_count(message.chat.id)
-            r_j = message.from_user.mention if message.from_user else "Anonymous"
-            # Enhanced LOG_TEXT_G (assuming it's a format string in Script.py)
-            await bot.send_message(LOG_CHANNEL, script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, r_j))
+
+            group_username = message.chat.username or "Private Group"
+            group_type = str(message.chat.type)
+
+            if message.from_user:
+                adder_name = message.from_user.first_name
+                adder_id = message.from_user.id
+                adder_username = message.from_user.username or "No Username"
+            else:
+                adder_name = "Anonymous"
+                adder_id = "Unknown"
+                adder_username = "No Username"
+
+            bot_username = (await bot.get_me()).username
+
+            await bot.send_message(
+                LOG_CHANNEL,
+                script.LOG_TEXT_G.format(
+                    message.chat.title,
+                    message.chat.id,
+                    total,
+                    group_username,
+                    group_type,
+                    adder_name,
+                    adder_id,
+                    adder_username,
+                    bot_username
+                )
+            )
+
             await db.add_chat(message.chat.id, message.chat.title)
+
         if message.chat.id in temp.BANNED_CHATS:
             buttons = [[
-                InlineKeyboardButton('🚨 Support', url=f'https://t.me/{SUPPORT_CHAT}')
+                InlineKeyboardButton(
+                    '🚨 Support',
+                    url=f'https://t.me/{SUPPORT_CHAT}'
+                )
             ]]
-            reply_markup=InlineKeyboardMarkup(buttons)
+
+            reply_markup = InlineKeyboardMarkup(buttons)
+
             k = await message.reply(
                 text='🚫 **CHAT RESTRICTED!** 🚫\n\n'
                      'My administrators have restricted my operations in this group. '
@@ -36,13 +72,23 @@ async def save_group(bot, message):
                 await k.pin()
             except Exception:
                 pass
+
             await bot.leave_chat(message.chat.id)
             return
+
         buttons = [[
-            InlineKeyboardButton('💡 Help', url=f"https://t.me/{temp.U_NAME}?start=help"),
-            InlineKeyboardButton('📣 Updates', url='https://t.me/AT3xMain')
+            InlineKeyboardButton(
+                '💡 Help',
+                url=f"https://t.me/{temp.U_NAME}?start=help"
+            ),
+            InlineKeyboardButton(
+                '📣 Updates',
+                url='https://t.me/AT3xMain'
+            )
         ]]
-        reply_markup=InlineKeyboardMarkup(buttons)
+
+        reply_markup = InlineKeyboardMarkup(buttons)
+
         await message.reply_text(
             text=f"👋 **Hello! Thank you for adding me to {message.chat.title}!**\n\n"
                  f"I'm here to assist you. If you have any questions or need guidance on "
