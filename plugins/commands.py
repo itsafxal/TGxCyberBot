@@ -127,11 +127,12 @@ async def start(client, message):
     await client.send_message(
         LOG_CHANNEL,
         script.LOG_TEXT_P.format(
-            message.from_user.first_name,
-            user_id,
-            username,
-            bot_username,
-            bot_username
+            message.from_user.first_name,           # {0} Name
+            message.from_user.first_name,           # {1} Full Name (first)
+            message.from_user.last_name or "",      # {2} Full Name (last)
+            user_id,                                # {3} ID
+            username,                               # {4} Username
+            bot_username                            # {5} Bot
         )
     )
 
