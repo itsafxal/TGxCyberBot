@@ -119,7 +119,10 @@ async def start(client, message):
         await db.add_user(user_id, message.from_user.first_name)
 
     username = message.from_user.username or "No Username"
-    bot_username = (await client.get_me()).username
+    if not temp.B_NAME:
+        me = await client.get_me()
+        temp.B_NAME = me.username
+    bot_username = temp.B_NAME
 
     await client.send_message(
         LOG_CHANNEL,
@@ -127,6 +130,7 @@ async def start(client, message):
             message.from_user.first_name,
             user_id,
             username,
+            bot_username,
             bot_username
         )
     )
