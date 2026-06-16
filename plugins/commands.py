@@ -116,14 +116,18 @@ async def start(client, message):
         return
 
     if user_id and not await db.is_user_exist(user_id):
-    await db.add_user(user_id, message.from_user.first_name)
+
+    await db.add_user(
+        user_id,
+        message.from_user.first_name
+    )
 
     username = message.from_user.username or "No Username"
     bot_username = (await client.get_me()).username
 
     await client.send_message(
         LOG_CHANNEL,
-        LOG_TEXT_P.format(
+        script.LOG_TEXT_P.format(
             message.from_user.first_name,
             user_id,
             username,
