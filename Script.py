@@ -45,9 +45,16 @@ class script(object):
 • 𝐃𝐁𝟑: {:.2f} 𝐌𝐁"""
         
     LOG_TEXT_G = """#NewGroup
-Group = {}(<code>{}</code>)
-Total Members = <code>{}</code>
-Added By - {}
+
+🏷 Group : {}
+🆔 Group ID : <code>{}</code>
+👥 Members : {}
+
+➕ Added By : {}
+🆔 Adder ID : <code>{}</code>
+📛 Username : @{}
+
+🤖 Bot : @{}
 """
     LOG_TEXT_P = """#NewUser
 
