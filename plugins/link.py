@@ -1,8 +1,9 @@
 from utils import temp
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from info import ADMINS
 
-@Client.on_message(filters.command("link") & filters.user([7584231163, 1509123054]))
+@Client.on_message(filters.command("link") & filters.user(ADMINS))
 async def generate_link(client, message):
     command_text = message.text.split(maxsplit=1)
     if len(command_text) < 2:
