@@ -1,4 +1,4 @@
-
+from utils import temp
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -9,7 +9,7 @@ async def generate_link(client, message):
         await message.reply("Please provide the name for the movie! Example: `/link game of thrones`")
         return
     movie_name = command_text[1].replace(" ", "-")
-    link = f"https://t.me/MCU_MAMITHA_V3_BOT?start=getfile-{movie_name}"
+    link = f"https://t.me/{temp.U_NAME}?start=getfile-{movie_name}"
     
     await message.reply(
         text=f"Here is your link: {link}",
