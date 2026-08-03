@@ -19,7 +19,7 @@ from database.users_chats_db import db
 from database.ia_filterdb import get_file_details, Media2, Media3, db as clientDB, db2 as clientDB2, db3 as clientDB3, fetch_mongo_ids_by_keyword
 from database.gfilters_mdb import find_gfilter, get_gfilters
 from info import ADMINS, CUSTOM_FILE_CAPTION, AUTO_DEL, MAX_FILES
-from sql.db import get_search_results, delete_file_sql
+from sql.db import get_search_results, delete_file_sql, get_suggestions_sql
 from utils import get_size, temp, is_requested_one, is_requested_two, add_auto_delete_message, premium_emoji
 
 # --- Configuration ---
@@ -535,9 +535,50 @@ async def filter_quality_cb_handler(client: Client, query: CallbackQuery):
     except Exception as e:
         await query.answer("Aɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴅᴜʀɪɴɢ ᴏ̨ᴜᴀʟɪᴛʏ sᴇᴀʀᴄʜ.", show_alert=True)
         
-##############################################################################################################################################################################################################
+@Client.on_callback_query(filters.regex(r"^sp#"))
+async def spell_check_cb_handler(client: Client, query: CallbackQuery):
+    """Handles the user clicking a spell check suggestion button."""
+    try:
+        _, search_key, index_str = query.data.split("#")
+        index = int(index_str)
+    except ValueError:
+        return await query.answer("Iɴᴠᴀʟɪᴅ sᴜɢɢᴇsᴛɪᴏɴ ᴅᴀᴛᴀ.", show_alert=True)
 
-        
+    requested_user_id = int(search_key.split("_")[0])
+    if query.from_user.id != requested_user_id:
+        return await query.answer(
+            f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\n"
+            f"ᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
+            show_alert=True,
+        )
+
+    suggestions = SEARCH_CACHE.get(f"spell_{search_key}")
+    if not suggestions or index >= len(suggestions):
+        return await query.answer("Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ sᴇᴀʀᴄʜ ᴀɢᴀɪɴ. 🔰", show_alert=True)
+
+    selected_suggestion = suggestions[index]
+    await query.answer(f"🔎 Sᴇᴀʀᴄʜɪɴɢ ғᴏʀ: {selected_suggestion}", show_alert=False)
+
+    files, offset = await get_search_results(selected_suggestion, offset=0)
+
+    if not files:
+        return await query.answer(f"🚫 Nᴏ ғɪʟᴇs ғᴏᴜɴᴅ ғᴏʀ {selected_suggestion}.", show_alert=True)
+
+    cyber = query.from_user.mention
+    btn = generate_main_buttons(files, offset, search_key)
+    SEARCH_CACHE.set(search_key, selected_suggestion)
+
+    try:
+        await query.edit_message_text(
+            text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=selected_suggestion, page=1),
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+    except MessageNotModified:
+        pass
+    except Exception as e:
+        logger.exception(f"Error updating message for suggestion search: {e}")
+
 @Client.on_callback_query()
 async def main_cb_handler(client: Client, query: CallbackQuery):
     data = query.data
@@ -770,6 +811,69 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             parse_mode=enums.ParseMode.HTML
         )
 
+async def reply_with_spell_check_suggestions(message, cyber, search):
+    """Replies with fast spell check suggestions from SQLite DB when no search results are found."""
+    suggestions = await get_suggestions_sql(search)
+    if suggestions:
+        search_key = f"{message.from_user.id}_{message.id}"
+        SEARCH_CACHE.set(f"spell_{search_key}", suggestions)
+        
+        btn = []
+        i = 0
+        while i < len(suggestions):
+            s1 = suggestions[i]
+            if len(s1) > 24 or (i + 1 < len(suggestions) and len(suggestions[i+1]) > 24):
+                btn.append([
+                    InlineKeyboardButton(
+                        text=f"🎬 {s1}",
+                        callback_data=f"sp#{search_key}#{i}",
+                        style=ButtonStyle.DEFAULT
+                    )
+                ])
+                i += 1
+            else:
+                row = [
+                    InlineKeyboardButton(
+                        text=f"🎬 {s1}",
+                        callback_data=f"sp#{search_key}#{i}",
+                        style=ButtonStyle.DEFAULT
+                    )
+                ]
+                if i + 1 < len(suggestions):
+                    s2 = suggestions[i + 1]
+                    row.append(
+                        InlineKeyboardButton(
+                            text=f"🎬 {s2}",
+                            callback_data=f"sp#{search_key}#{i+1}",
+                            style=ButtonStyle.DEFAULT
+                        )
+                    )
+                    i += 2
+                else:
+                    i += 1
+                btn.append(row)
+                
+        btn.append([
+            InlineKeyboardButton(
+                "❌ Cʟᴏsᴇ",
+                callback_data="close_data",
+                style=ButtonStyle.DEFAULT
+            )
+        ])
+        
+        spell_text = script.SPELL_CHECK_TXT.format(cyber=cyber, search=search)
+        await message.reply_text(
+            text=spell_text,
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+    else:
+        await message.reply(
+            f"Hᴇʏ {cyber} 💫,\n"
+            f"Nᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n"
+            f"➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴇsᴇᴅ.✨"
+        )
+
 async def auto_filter(client, message):
     cyber = message.from_user.mention
     search = message.text
@@ -781,10 +885,7 @@ async def auto_filter(client, message):
     files, offset = await get_search_results(search, offset=0)
 
     if not files:
-        await message.reply(
-            f"Hᴇʏ {cyber} 💫,\nNᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴇsᴇᴅ.✨",
-            
-        )
+        await reply_with_spell_check_suggestions(message, cyber, search)
         return
 
     search_key = f"{message.from_user.id}_{message.id}"
@@ -845,13 +946,7 @@ async def pm_auto_filter(client, message):
     files, offset = await get_search_results(search, offset=0)
 
     if not files:
-        await message.reply(
-            f"Hᴇʏ {cyber} 💫,\n"
-            f"Nᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ RᴇQᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n"
-            f"➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ.\n"
-            f"Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴇsᴇᴅ. ✨",
-            
-        )
+        await reply_with_spell_check_suggestions(message, cyber, search)
         return
 
     search_key = f"{message.from_user.id}_{message.id}"

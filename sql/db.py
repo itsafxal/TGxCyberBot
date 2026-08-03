@@ -4,6 +4,7 @@ import aiosqlite
 import datetime
 import pytz
 import re
+import difflib
 from collections import defaultdict
 from typing import Tuple, List, Optional
 
@@ -385,3 +386,122 @@ async def delete_all_files_sql() -> Tuple[bool, int]:
     except Exception as e:
         logging.exception(f"Error occurred while deleting all files from database: {e}")
         return False, 0
+
+
+# Memory cache for fast repeated suggestion lookups
+SUGGESTION_CACHE = {}
+MAX_SUGGESTION_CACHE_SIZE = 1000
+
+def clean_file_name_for_title(file_name: str) -> str:
+    """Cleans raw file name into a clean movie/series title."""
+    if not file_name:
+        return ""
+    # Strip file extension
+    title = re.sub(r'\.(mkv|mp4|avi|webm|flv|mov|m4v|3gp|zip|rar|tar|gz|7z)$', '', file_name, flags=re.IGNORECASE)
+    # Remove Season/Episode tags
+    title = re.sub(r'\[?(?:S\d{1,2}|Season\s*\d{1,2})(?:[\s._-]*?(?:EP?\d{1,2}|Episode\s*\d{1,2}))?\]?', '', title, flags=re.IGNORECASE)
+    # Remove quality / resolution / codec / year / language tags
+    pattern = r'(?i)\b(1080p|720p|480p|360p|2160p|4k|hdr|webrip|web-dl|web|bluray|hdrip|dvdrip|x264|x265|hevc|h264|esub|msub|sub|hindi|malayalam|tamil|telugu|kannada|english|multi|dual|aac|dd5\.1|atmos|19\d\d|20\d\d)\b'
+    title = re.sub(pattern, '', title)
+    # Remove website / telegram channel tags e.g. @channel
+    title = re.sub(r'@[a-zA-Z0-9_]+', '', title)
+    # Replace symbols with spaces
+    title = re.sub(r'[\._\-\[\(\]\)]+', ' ', title)
+    # Remove extra spaces
+    title = re.sub(r'\s+', ' ', title).strip()
+    return title
+
+async def get_suggestions_sql(search_query: str, limit: int = 8) -> List[str]:
+    """Generates spell check suggestions from SQLite media table fast."""
+    if not search_query or len(search_query.strip()) < 2:
+        return []
+
+    cache_key = search_query.strip().lower()
+    if cache_key in SUGGESTION_CACHE:
+        return SUGGESTION_CACHE[cache_key]
+
+    try:
+        db = get_aiosqlite_connection()
+    except Exception as e:
+        logger.error(f"SQLite connection error in get_suggestions_sql: {e}")
+        return []
+
+    raw_words = [w for w in re.findall(r'\w+', search_query.lower()) if len(w) >= 2]
+    if not raw_words:
+        return []
+
+    # Build SQL OR matching for candidate retrieval
+    where_clauses = []
+    params = []
+    for word in raw_words:
+        where_clauses.append("file_name LIKE ?")
+        params.append(f"%{word}%")
+        if len(word) >= 4:
+            prefix = word[:3]
+            where_clauses.append("file_name LIKE ?")
+            params.append(f"%{prefix}%")
+
+    where_stmt = " OR ".join(where_clauses)
+    query = f"""
+        SELECT DISTINCT file_name
+        FROM media
+        WHERE {where_stmt}
+        LIMIT 300
+    """
+    try:
+        async with db.execute(query, tuple(params)) as cursor:
+            rows = await cursor.fetchall()
+    except Exception as e:
+        logger.error(f"Error fetching suggestion candidates: {e}")
+        rows = []
+
+    if not rows:
+        try:
+            async with db.execute("SELECT DISTINCT file_name FROM media ORDER BY date_saved DESC LIMIT 200") as cursor:
+                rows = await cursor.fetchall()
+        except Exception:
+            rows = []
+
+    candidates_map = {}
+    query_clean = re.sub(r'\s+', ' ', search_query.strip().lower())
+    q_words = set(raw_words)
+
+    for row in rows:
+        fn = row[0]
+        if not fn:
+            continue
+        clean_t = clean_file_name_for_title(fn)
+        if not clean_t or len(clean_t) < 2:
+            continue
+        clean_lower = clean_t.lower()
+
+        if clean_t in candidates_map:
+            continue
+
+        seq_ratio = difflib.SequenceMatcher(None, query_clean, clean_lower).ratio()
+        
+        t_words = set(re.findall(r'\w+', clean_lower))
+        if not t_words:
+            continue
+        intersection = q_words & t_words
+        union = q_words | t_words
+        token_ratio = len(intersection) / float(len(union)) if union else 0.0
+
+        partial_bonus = 0.0
+        if any(w in clean_lower for w in raw_words):
+            partial_bonus = 0.15
+
+        score = max(seq_ratio, token_ratio) + partial_bonus
+
+        if score >= 0.35:
+            candidates_map[clean_t] = score
+
+    sorted_suggestions = sorted(candidates_map.keys(), key=lambda k: candidates_map[k], reverse=True)
+    top_suggestions = sorted_suggestions[:limit]
+
+    if len(SUGGESTION_CACHE) > MAX_SUGGESTION_CACHE_SIZE:
+        SUGGESTION_CACHE.clear()
+    SUGGESTION_CACHE[cache_key] = top_suggestions
+
+    return top_suggestions
+

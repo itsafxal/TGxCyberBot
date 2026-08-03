@@ -108,3 +108,9 @@ Command	Description
 
 <emoji id='5458382591121964689'>✍️</emoji> NOTE : <emoji id='5188463524568926712'>⚠️</emoji> This Message Will Be Auto Deleted Within 15 Mins <emoji id='6312353154788758411'>❗️</emoji>
 ©ᶜʸᵇᵉʳᵗᵍ <emoji id='5456140674028019486'>🗡️</emoji>"""
+
+    SPELL_CHECK_TXT = """Hᴇʏ {cyber} 💫,
+Nᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ <code>{search}</code>.
+
+<b> Dɪᴅ ʏᴏᴜ ᴍᴇᴀɴ ᴏɴᴇ ᴏғ ᴛʜᴇsᴇ? 👇</b>"""
+
