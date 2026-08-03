@@ -114,13 +114,16 @@ Nᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ <code>{search}</code>.
 
 <b> Dɪᴅ ʏᴏᴜ ᴍᴇᴀɴ ᴏɴᴇ ᴏғ ᴛʜᴇsᴇ? 👇</b>"""
 
-    LATEST_POST_TXT = """Latest Releases {channel}
-✅ <b>{title}</b>
+    AUTO_ANNOUNCEMENT_TXT = """🎬 <b>{title}</b>
+📅 <b>Year:</b> {year}
+🌍 <b>Language:</b> {languages}
+🎭 <b>Genre:</b> {genres}
+⭐ <b>Rating:</b> {rating}
 
-🔊 <b>{languages}</b>
+📝 <b>Description:</b>
+<i>{description}</i>
 
-<a href="{imdb_url}">⭐️ IMDB info</a>
-📽 <b>Genre: {genres}</b>
-📺 <b>OTT: {ott}</b>"""
+© @{bot_username}"""
+
 
 

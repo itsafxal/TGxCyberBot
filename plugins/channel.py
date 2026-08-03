@@ -219,7 +219,9 @@ async def media(bot, message):
         else:
             await save_file3(media)
 
-        await auto_post_new_file(bot, media)
+        if is_saved_sql:
+            from database.announcement import announce_new_movie
+            asyncio.create_task(announce_new_movie(bot, media))
     else:
         print("skipped duplicate file from saving to db 😌")
 

@@ -53,6 +53,8 @@ JOIN_REQS_DB = environ.get("JOIN_REQS_DB", DATABASE_URI)
 LOG_CHANNEL = int(log_channel) if (log_channel := environ.get('LOG_CHANNEL')) and id_pattern.search(log_channel) else None
 FILE_STORE_CHANNEL = int(file_store) if (file_store := environ.get('FILE_STORE_CHANNEL')) and id_pattern.search(file_store) else 0
 PUBLIC_FILE_STORE = int(pub_store) if (pub_store := environ.get('PUBLIC_FILE_STORE')) and id_pattern.search(pub_store) else 0
+post_channels = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get('POST_CHANNELS', '').split()]
+POST_CHANNELS = post_channels if post_channels else ([LOG_CHANNEL] if LOG_CHANNEL else [])
 SUPPORT_CHAT = environ.get('SUPPORT_CHAT')
 CUSTOM_FILE_CAPTION = environ.get("CUSTOM_FILE_CAPTION", script.CAPTION_TXT)
 MAX_LIST_ELM = environ.get("MAX_LIST_ELM", None)
