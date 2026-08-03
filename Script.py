@@ -114,3 +114,13 @@ Nᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ <code>{search}</code>.
 
 <b> Dɪᴅ ʏᴏᴜ ᴍᴇᴀɴ ᴏɴᴇ ᴏғ ᴛʜᴇsᴇ? 👇</b>"""
 
+    LATEST_POST_TXT = """Latest Releases {channel}
+✅ <b>{title}</b>
+
+🔊 <b>{languages}</b>
+
+<a href="{imdb_url}">⭐️ IMDB info</a>
+📽 <b>Genre: {genres}</b>
+📺 <b>OTT: {ott}</b>"""
+
+
