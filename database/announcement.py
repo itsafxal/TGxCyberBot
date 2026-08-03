@@ -151,7 +151,8 @@ async def announce_new_movie(bot, media):
 
     bot_username = temp.U_NAME or (await bot.get_me()).username
     first_lang = languages_str.split(",")[0].strip().lower() if languages_str else "multi"
-    getfile_slug = f"getfile-{re.sub(r'[\s._-]+', '-', clean_title).strip('-')}-{first_lang}"
+    slug_title = re.sub(r'[\s._-]+', '-', clean_title).strip('-')
+    getfile_slug = f"getfile-{slug_title}-{first_lang}"
     search_url = f"https://t.me/{bot_username}?start={getfile_slug}"
 
     caption_text = script.AUTO_ANNOUNCEMENT_TXT.format(

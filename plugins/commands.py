@@ -353,7 +353,7 @@ async def start(client, message):
         sts = await message.reply("Please wait")
         try:
             b_string = data.split("DSTORE-", 1)[1]
-            decoded = base64.urlsafe_b64decode(b_string + "=" * (-len(b_string) % 4)).decode("ascii")
+            decoded = base64.urlsafe_b64decode(b_string + "=" * (-len(b_string) % 4)).decode("utf-8", errors="ignore")
             try:
                 f_msg_id, l_msg_id, f_chat_id, protect = decoded.split("_", 3)
             except ValueError:
@@ -408,8 +408,11 @@ async def start(client, message):
     files_ = await get_file_details(file_id)
     if not files_:
         try:
-            decoded = base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode("ascii")
-            prefix, file_id = decoded.split("_", 1)
+            decoded = base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode("utf-8", errors="ignore")
+            if "_" in decoded:
+                prefix, file_id = decoded.split("_", 1)
+            else:
+                prefix, file_id = "", decoded
             try:
                 msg = await client.send_cached_media(
                     chat_id=user_id,
