@@ -50,9 +50,9 @@ REQ_CHANNEL2 = (int(REQ_CHANNEL2) if REQ_CHANNEL2 and id_pattern.search(REQ_CHAN
 JOIN_REQS_DB = environ.get("JOIN_REQS_DB", DATABASE_URI)
 
 # Others
-LOG_CHANNEL = int(environ.get('LOG_CHANNEL'))
-FILE_STORE_CHANNEL = int(environ.get('FILE_STORE_CHANNEL', 0))
-PUBLIC_FILE_STORE = int(environ.get('PUBLIC_FILE_STORE', 0))
+LOG_CHANNEL = int(log_channel) if (log_channel := environ.get('LOG_CHANNEL')) and id_pattern.search(log_channel) else None
+FILE_STORE_CHANNEL = int(file_store) if (file_store := environ.get('FILE_STORE_CHANNEL')) and id_pattern.search(file_store) else 0
+PUBLIC_FILE_STORE = int(pub_store) if (pub_store := environ.get('PUBLIC_FILE_STORE')) and id_pattern.search(pub_store) else 0
 SUPPORT_CHAT = environ.get('SUPPORT_CHAT')
 CUSTOM_FILE_CAPTION = environ.get("CUSTOM_FILE_CAPTION", script.CAPTION_TXT)
 MAX_LIST_ELM = environ.get("MAX_LIST_ELM", None)

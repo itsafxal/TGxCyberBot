@@ -486,15 +486,16 @@ async def send_for_index(bot: Client, message: Message):
         reply_markup = InlineKeyboardMarkup(buttons)
 
         # Admin notification message
-        await bot.send_message(LOG_CHANNEL,
-                               f'🚨 **New Indexing Request** 🚨\n\n'
-                               f'**Initiated By:** {message.from_user.mention} (ID: `{message.from_user.id}`)\n'
-                               f'**Target Chat:** `{chat_id}`\n'
-                               f'**Last Message ID:** `{last_msg_id}`\n'
-                               f'**Invite Link:** {invite_link}\n\n'
-                               f'Please review and decide:',
-                               reply_markup=reply_markup,
-                               parse_mode=enums.ParseMode.MARKDOWN)
+        if LOG_CHANNEL:
+            await bot.send_message(LOG_CHANNEL,
+                                   f'🚨 **New Indexing Request** 🚨\n\n'
+                                   f'**Initiated By:** {message.from_user.mention} (ID: `{message.from_user.id}`)\n'
+                                   f'**Target Chat:** `{chat_id}`\n'
+                                   f'**Last Message ID:** `{last_msg_id}`\n'
+                                   f'**Invite Link:** {invite_link}\n\n'
+                                   f'Please review and decide:',
+                                   reply_markup=reply_markup,
+                                   parse_mode=enums.ParseMode.MARKDOWN)
         
         # User confirmation message
         await message.reply('🌟 **Request Submitted!** 🌟\n\n'

@@ -32,20 +32,21 @@ async def save_group(bot, message):
 
             bot_username = (await bot.get_me()).username
 
-            await bot.send_message(
-                LOG_CHANNEL,
-                script.LOG_TEXT_G.format(
-                    message.chat.title,
-                    message.chat.id,
-                    total,
-                    group_username,
-                    group_type,
-                    adder_name,
-                    adder_id,
-                    adder_username,
-                    bot_username
+            if LOG_CHANNEL:
+                await bot.send_message(
+                    LOG_CHANNEL,
+                    script.LOG_TEXT_G.format(
+                        message.chat.title,
+                        message.chat.id,
+                        total,
+                        group_username,
+                        group_type,
+                        adder_name,
+                        adder_id,
+                        adder_username,
+                        bot_username
+                    )
                 )
-            )
 
             await db.add_chat(message.chat.id, message.chat.title)
 

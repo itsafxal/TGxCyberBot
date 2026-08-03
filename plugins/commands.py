@@ -30,12 +30,14 @@ async def send_log_report(client, user, item, report_type):
     user_info = f"**User:** {user.mention}\n**User ID:** `{user.id}`"
     report_message = f"{header}\n\n**{item_label}:** {item}\n\n{user_info}"
 
-    try:
-        await client.send_message(chat_id=LOG_CHANNEL, text=report_message)
-        return True
-    except Exception as e:
-        logger.error(f"Failed to send {report_type} to log channel: {e}")
-        return False
+    if LOG_CHANNEL:
+        try:
+            await client.send_message(chat_id=LOG_CHANNEL, text=report_message)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send {report_type} to log channel: {e}")
+            return False
+    return True
 
 async def auto_delete_message(message, delay_seconds):
     """Deletes a message after a specified delay."""
@@ -111,7 +113,8 @@ async def start(client, message):
         await message.reply(script.START_TXT.format(message.from_user.mention if user_id else message.chat.title, temp.B_NAME), reply_markup=reply_markup)
         if not await db.get_chat(chat_id):
             total = await client.get_chat_members_count(chat_id)
-            await client.send_message(LOG_CHANNEL, script.LOG_TEXT_G.format(message.chat.title, chat_id, total, "Unknown"))
+            if LOG_CHANNEL:
+                await client.send_message(LOG_CHANNEL, script.LOG_TEXT_G.format(message.chat.title, chat_id, total, "Unknown"))
             await db.add_chat(chat_id, message.chat.title)
         return
 
@@ -124,17 +127,18 @@ async def start(client, message):
         temp.B_NAME = me.username
     bot_username = temp.B_NAME
 
-    await client.send_message(
-        LOG_CHANNEL,
-        script.LOG_TEXT_P.format(
-            message.from_user.first_name,           # {0} Name
-            message.from_user.first_name,           # {1} Full Name (first)
-            message.from_user.last_name or "",      # {2} Full Name (last)
-            user_id,                                # {3} ID
-            username,                               # {4} Username
-            bot_username                            # {5} Bot
+    if LOG_CHANNEL:
+        await client.send_message(
+            LOG_CHANNEL,
+            script.LOG_TEXT_P.format(
+                message.from_user.first_name,           # {0} Name
+                message.from_user.first_name,           # {1} Full Name (first)
+                message.from_user.last_name or "",      # {2} Full Name (last)
+                user_id,                                # {3} ID
+                username,                               # {4} Username
+                bot_username                            # {5} Bot
+            )
         )
-    )
 
     if len(message.command) != 2:
         buttons = [[

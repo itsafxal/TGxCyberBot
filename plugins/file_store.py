@@ -115,9 +115,10 @@ async def gen_link_batch(bot, message):
     with open(fname, "w") as f:
         json.dump(outlist, f, indent=2)
 
+    target_channel = LOG_CHANNEL or message.chat.id
     try:
         up = await bot.send_document(
-            LOG_CHANNEL, fname,
+            target_channel, fname,
             file_name=fname,
             caption=f"🗂️ Batch generated with {valid} files"
         )
