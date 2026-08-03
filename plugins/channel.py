@@ -1,7 +1,10 @@
-from pyrogram import Client, filters
-from info import CHANNELS, DATABASE_URI
+from pyrogram import Client, filters, enums
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from info import CHANNELS, DATABASE_URI, LOG_CHANNEL
 from database.ia_filterdb import save_file2, save_file3, check_file
 from sql.db import save_file_sql
+from Script import script
+from utils import temp
 import logging
 import re
 import pytz
@@ -23,6 +26,62 @@ collection_k = db["latestk"]
 MOVIE_NAME_PATTERN = r"^(?P<title>.*?)(?=\s+(?:S\d+E\d+|\(\d{4}\)|\d{4}\b|\d+p|WEBRip|BluRay|HDRip|WEB-DL|PreDVD|HEVC|AAC|x264|DD|ESub|\[|\(|-)|\s*$)"
 YEAR_PATTERN = r"\b\d{4}\b"
 LANGUAGES = r"(?i)\b(tamil|tam|hindi|hin|telugu|tel|malayalam|mal|kannada|kan|english|eng)\b"
+
+async def auto_post_new_file(bot, media):
+    """Automatically posts a formatted Latest Release post to LOG_CHANNEL or target channel when a new file is added."""
+    target_chat = LOG_CHANNEL
+    if not target_chat:
+        return
+
+    try:
+        raw_name = getattr(media, 'caption', None) or getattr(media, 'file_name', '')
+        file_name = re.sub(r"📂 Fɪʟᴇ ɴᴀᴍᴇ :", "", str(raw_name)).strip()
+
+        from sql.db import clean_file_name_for_title
+        clean_title = clean_file_name_for_title(file_name)
+        if not clean_title:
+            clean_title = file_name
+
+        lang_matches = re.findall(LANGUAGES, file_name)
+        if lang_matches:
+            langs_list = []
+            for l in lang_matches:
+                l_cap = l.capitalize()
+                if l_cap not in langs_list:
+                    langs_list.append(l_cap)
+            languages_str = ", ".join(langs_list)
+        else:
+            languages_str = "Malayalam, Tamil, Telugu"
+
+        first_lang = lang_matches[0].lower() if lang_matches else "multi"
+        title_slug = re.sub(r'[\s._-]+', '-', clean_title).strip('-')
+        getfile_param = f"getfile-{title_slug}-{first_lang}"
+
+        bot_username = temp.U_NAME or (await bot.get_me()).username
+        search_link = f"https://t.me/{bot_username}?start={getfile_param}"
+
+        post_text = script.LATEST_POST_TXT.format(
+            channel=f"@{bot_username}",
+            title=clean_title,
+            languages=languages_str,
+            imdb_url=f"https://www.imdb.com/find/?q={clean_title.replace(' ', '+')}",
+            genres="Action, Drama, Thriller",
+            ott="OTT Release"
+        )
+
+        reply_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Click to Search 🔍", url=search_link)]
+        ])
+
+        await bot.send_message(
+            chat_id=target_chat,
+            text=post_text,
+            reply_markup=reply_markup,
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        logging.error(f"Error in auto_post_new_file: {e}")
 
 async def get_all_movies(col):
     movies = col.find().sort("_id", -1)
@@ -159,5 +218,8 @@ async def media(bot, message):
             await save_file2(media)
         else:
             await save_file3(media)
+
+        await auto_post_new_file(bot, media)
     else:
         print("skipped duplicate file from saving to db 😌")
+

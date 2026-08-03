@@ -280,6 +280,31 @@ async def start(client, message):
         return
 
     data = message.command[1]
+    if data.startswith("getfile-"):
+        query_raw = data.replace("getfile-", "").replace("-", " ").strip()
+        files, offset = await get_search_results(query_raw, offset=0)
+        if not files:
+            words = query_raw.split()
+            if len(words) > 1:
+                files, offset = await get_search_results(words[0], offset=0)
+                if files:
+                    query_raw = words[0]
+
+        from plugins.pm_filter import SEARCH_CACHE, generate_main_buttons, reply_with_spell_check_suggestions
+        if files:
+            cyber = message.from_user.mention
+            search_key = f"{message.from_user.id}_{message.id}"
+            btn = generate_main_buttons(files, offset, search_key)
+            SEARCH_CACHE.set(search_key, query_raw)
+            return await message.reply_text(
+                text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=query_raw, page=1),
+                reply_markup=InlineKeyboardMarkup(btn),
+                parse_mode=enums.ParseMode.HTML
+            )
+        else:
+            await reply_with_spell_check_suggestions(message, message.from_user.mention if user_id else "User", query_raw)
+            return
+
     try:
         prefix, file_id = data.split('_', 1)
     except ValueError:
