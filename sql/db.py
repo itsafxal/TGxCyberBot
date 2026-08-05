@@ -5,6 +5,7 @@ import datetime
 import pytz
 import re
 import difflib
+import aiohttp
 from collections import defaultdict
 from typing import Tuple, List, Optional
 
@@ -211,16 +212,107 @@ async def migrate_to_sql():
 
 # --- Regular Bot Operation Functions ---
 
+async def fetch_imdb_titles(search_query: str) -> List[str]:
+    """Fetches movie title candidates from IMDb suggestion API with OMDb fallback."""
+    if not search_query or len(search_query.strip()) < 2:
+        return []
+    clean_q = re.sub(r'[^a-zA-Z0-9]+', '', search_query.strip().lower())
+    if not clean_q:
+        return []
+
+    url_imdb = f"https://v3.sg.media-imdb.com/suggestion/x/{clean_q}.json"
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url_imdb, headers=headers, timeout=aiohttp.ClientTimeout(total=3)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    items = data.get("d", [])
+                    titles = [item.get("l") for item in items if item.get("l")]
+                    if titles:
+                        return titles
+    except Exception as e:
+        logger.debug(f"IMDb v3 suggestion fetch exception for '{search_query}': {e}")
+
+    try:
+        url_omdb = f"https://www.omdbapi.com/?s={clean_q}&apikey=32906d20"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url_omdb, timeout=aiohttp.ClientTimeout(total=3)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data.get("Response") == "True":
+                        items = data.get("Search", [])
+                        return [item.get("Title") for item in items if item.get("Title")]
+    except Exception as e:
+        logger.debug(f"OMDb fallback exception for '{search_query}': {e}")
+
+    return []
+
+def compute_accuracy_score(query: str, title: str) -> float:
+    """Computes similarity / accuracy score between search query and title (0.0 to 1.0)."""
+    q_raw = query.strip().lower()
+    t_raw = title.strip().lower()
+    if not q_raw or not t_raw:
+        return 0.0
+
+    q_norm = re.sub(r'[^a-z0-9]+', ' ', q_raw).strip()
+    t_norm = re.sub(r'[^a-z0-9]+', ' ', t_raw).strip()
+
+    if q_norm == t_norm:
+        return 1.0
+
+    q_compact = re.sub(r'[^a-z0-9]+', '', q_raw)
+    t_compact = re.sub(r'[^a-z0-9]+', '', t_raw)
+
+    seq_ratio = difflib.SequenceMatcher(None, q_norm, t_norm).ratio()
+    compact_ratio = difflib.SequenceMatcher(None, q_compact, t_compact).ratio()
+
+    q_words = [w for w in re.findall(r'\w+', q_norm) if len(w) >= 2]
+    t_words = [w for w in re.findall(r'\w+', t_norm) if len(w) >= 2]
+
+    if not q_words or not t_words:
+        return max(seq_ratio, compact_ratio)
+
+    word_scores = []
+    for qw in q_words:
+        best_w_score = 0.0
+        for tw in t_words:
+            w_ratio = difflib.SequenceMatcher(None, qw, tw).ratio()
+            if w_ratio > best_w_score:
+                best_w_score = w_ratio
+        word_scores.append(best_w_score)
+
+    avg_word_score = sum(word_scores) / len(word_scores) if word_scores else 0.0
+
+    q_set, t_set = set(q_words), set(t_words)
+    intersection = q_set & t_set
+    union = q_set | t_set
+    jaccard_ratio = len(intersection) / float(len(union)) if union else 0.0
+
+    compact_boost = 0.15 if (q_compact in t_compact or t_compact in q_compact) else 0.0
+    query_contained = q_set.issubset(t_set) if q_set else False
+    contained_boost = 0.15 if query_contained else 0.0
+
+    final_score = max(seq_ratio, compact_ratio, avg_word_score, jaccard_ratio) + max(compact_boost, contained_boost)
+    return min(1.0, final_score)
+
 async def get_search_results(search_query: str, offset: int = 0) -> Tuple[List[dict], int]:
-    """Searches the SQLite database for files matching the query."""
+    """
+    Searches the SQLite database for files matching the query with 80% accuracy matching,
+    fuzzy candidate fallback, and IMDb spell-check correction integration.
+    """
     db = get_aiosqlite_connection()
-    search_terms = search_query.split()
+    search_terms = search_query.strip().split()
+    if not search_terms:
+        return [], 0
+
+    # 1. Primary Search: Exact SQL LIKE query with AND
     where_clauses = []
     params = []
     for term in search_terms:
         where_clauses.append("(file_name LIKE ? OR caption LIKE ?)")
         params.extend([f"%{term}%", f"%{term}%"])
-    
+
     where_statement = " AND ".join(where_clauses)
     query = f"""
         SELECT file_id, file_name, size
@@ -229,13 +321,78 @@ async def get_search_results(search_query: str, offset: int = 0) -> Tuple[List[d
         ORDER BY date_saved DESC
         LIMIT ? OFFSET ?
     """
-    params.extend([MAX_FILES+1, offset])
-    
+    params.extend([MAX_FILES + 1, offset])
+
     async with db.execute(query, tuple(params)) as cursor:
         rows = await cursor.fetchall()
-    
-    files = [{"file_id": row[0], "file_name": row[1], "size": row[2]} for row in rows]
-    return files, offset + len(files)
+
+    if rows:
+        scored_files = []
+        for row in rows:
+            accuracy = compute_accuracy_score(search_query, clean_file_name_for_title(row[1]))
+            scored_files.append({"file_id": row[0], "file_name": row[1], "size": row[2], "accuracy": accuracy})
+        scored_files.sort(key=lambda x: x["accuracy"], reverse=True)
+        files = [{"file_id": f["file_id"], "file_name": f["file_name"], "size": f["size"]} for f in scored_files]
+        return files, offset + len(files)
+
+    # 2. Secondary Search: Fuzzy OR Candidate Search with 80% Accuracy Threshold
+    if offset == 0 and len(search_query.strip()) >= 3:
+        raw_words = [w for w in re.findall(r'\w+', search_query.lower()) if len(w) >= 2]
+        if raw_words:
+            or_clauses = []
+            or_params = []
+            for w in raw_words:
+                or_clauses.append("file_name LIKE ?")
+                or_params.append(f"%{w}%")
+
+            or_stmt = " OR ".join(or_clauses)
+            fuzzy_query = f"""
+                SELECT file_id, file_name, size
+                FROM media
+                WHERE {or_stmt}
+                ORDER BY date_saved DESC
+                LIMIT 500
+            """
+            async with db.execute(fuzzy_query, tuple(or_params)) as cursor:
+                fuzzy_rows = await cursor.fetchall()
+
+            scored_fuzzy = []
+            for row in fuzzy_rows:
+                acc = compute_accuracy_score(search_query, clean_file_name_for_title(row[1]))
+                if acc >= 0.80:  # 80% Accuracy Filter
+                    scored_fuzzy.append((acc, {"file_id": row[0], "file_name": row[1], "size": row[2]}))
+
+            if scored_fuzzy:
+                scored_fuzzy.sort(key=lambda x: x[0], reverse=True)
+                fuzzy_files = [item[1] for item in scored_fuzzy[:MAX_FILES]]
+                return fuzzy_files, len(fuzzy_files)
+
+    # 3. Tertiary Search: IMDb Correction Lookup Fallback
+    if offset == 0 and len(search_query.strip()) >= 3:
+        try:
+            imdb_suggestions = await fetch_imdb_titles(search_query)
+            for title in imdb_suggestions:
+                acc = compute_accuracy_score(search_query, title)
+                if acc >= 0.75:  # High IMDb match confidence
+                    corrected_terms = title.strip().split()
+                    c_where = []
+                    c_params = []
+                    for ct in corrected_terms:
+                        c_where.append("(file_name LIKE ? OR caption LIKE ?)")
+                        c_params.extend([f"%{ct}%", f"%{ct}%"])
+                    c_stmt = " AND ".join(c_where)
+                    c_query = f"SELECT file_id, file_name, size FROM media WHERE {c_stmt} ORDER BY date_saved DESC LIMIT ?"
+                    c_params.append(MAX_FILES + 1)
+
+                    async with db.execute(c_query, tuple(c_params)) as cursor:
+                        c_rows = await cursor.fetchall()
+                    if c_rows:
+                        corrected_files = [{"file_id": r[0], "file_name": r[1], "size": r[2]} for r in c_rows]
+                        return corrected_files, len(corrected_files)
+        except Exception as e:
+            logger.debug(f"IMDb search fallback exception: {e}")
+
+    return [], 0
 
 
 async def save_file_sql(media):
@@ -411,8 +568,8 @@ def clean_file_name_for_title(file_name: str) -> str:
     title = re.sub(r'\s+', ' ', title).strip()
     return title
 
-async def get_suggestions_sql(search_query: str, limit: int = 8) -> List[str]:
-    """Generates spell check suggestions from SQLite media table fast."""
+async def get_suggestions_sql(search_query: str, limit: int = 8, min_accuracy: float = 0.80) -> List[str]:
+    """Generates spell check suggestions from SQLite media table + IMDb with 80% accuracy filter."""
     if not search_query or len(search_query.strip()) < 2:
         return []
 
@@ -420,83 +577,77 @@ async def get_suggestions_sql(search_query: str, limit: int = 8) -> List[str]:
     if cache_key in SUGGESTION_CACHE:
         return SUGGESTION_CACHE[cache_key]
 
-    try:
-        db = get_aiosqlite_connection()
-    except Exception as e:
-        logger.error(f"SQLite connection error in get_suggestions_sql: {e}")
-        return []
-
     raw_words = [w for w in re.findall(r'\w+', search_query.lower()) if len(w) >= 2]
     if not raw_words:
         return []
 
-    # Build SQL OR matching for candidate retrieval
-    where_clauses = []
-    params = []
-    for word in raw_words:
-        where_clauses.append("file_name LIKE ?")
-        params.append(f"%{word}%")
-        if len(word) >= 4:
-            prefix = word[:3]
-            where_clauses.append("file_name LIKE ?")
-            params.append(f"%{prefix}%")
+    # Fetch candidates asynchronously from IMDb and SQLite in parallel
+    imdb_task = asyncio.create_task(fetch_imdb_titles(search_query))
 
-    where_stmt = " OR ".join(where_clauses)
-    query = f"""
-        SELECT DISTINCT file_name
-        FROM media
-        WHERE {where_stmt}
-        LIMIT 300
-    """
+    sql_rows = []
     try:
-        async with db.execute(query, tuple(params)) as cursor:
-            rows = await cursor.fetchall()
-    except Exception as e:
-        logger.error(f"Error fetching suggestion candidates: {e}")
-        rows = []
+        db = get_aiosqlite_connection()
+        where_clauses = []
+        params = []
+        for word in raw_words:
+            where_clauses.append("file_name LIKE ?")
+            params.append(f"%{word}%")
+            if len(word) >= 4:
+                prefix = word[:3]
+                where_clauses.append("file_name LIKE ?")
+                params.append(f"%{prefix}%")
 
-    if not rows:
+        where_stmt = " OR ".join(where_clauses)
+        query = f"SELECT DISTINCT file_name FROM media WHERE {where_stmt} LIMIT 300"
+        async with db.execute(query, tuple(params)) as cursor:
+            sql_rows = await cursor.fetchall()
+    except Exception as e:
+        logger.error(f"Error fetching SQLite suggestion candidates: {e}")
+
+    if not sql_rows:
         try:
+            db = get_aiosqlite_connection()
             async with db.execute("SELECT DISTINCT file_name FROM media ORDER BY date_saved DESC LIMIT 200") as cursor:
-                rows = await cursor.fetchall()
+                sql_rows = await cursor.fetchall()
         except Exception:
-            rows = []
+            sql_rows = []
+
+    imdb_titles = []
+    try:
+        imdb_titles = await imdb_task
+    except Exception as e:
+        logger.debug(f"IMDb task error: {e}")
 
     candidates_map = {}
-    query_clean = re.sub(r'\s+', ' ', search_query.strip().lower())
-    q_words = set(raw_words)
 
-    for row in rows:
+    # Add IMDb candidates
+    for title in imdb_titles:
+        if not title or len(title) < 2:
+            continue
+        score = compute_accuracy_score(search_query, title)
+        if score >= min_accuracy or score >= 0.60:
+            candidates_map[title] = max(candidates_map.get(title, 0), score)
+
+    # Add SQLite candidates
+    for row in sql_rows:
         fn = row[0]
         if not fn:
             continue
         clean_t = clean_file_name_for_title(fn)
         if not clean_t or len(clean_t) < 2:
             continue
-        clean_lower = clean_t.lower()
 
-        if clean_t in candidates_map:
-            continue
+        score = compute_accuracy_score(search_query, clean_t)
+        if score >= min_accuracy or score >= 0.60:
+            candidates_map[clean_t] = max(candidates_map.get(clean_t, 0), score)
 
-        seq_ratio = difflib.SequenceMatcher(None, query_clean, clean_lower).ratio()
-        
-        t_words = set(re.findall(r'\w+', clean_lower))
-        if not t_words:
-            continue
-        intersection = q_words & t_words
-        union = q_words | t_words
-        token_ratio = len(intersection) / float(len(union)) if union else 0.0
+    # Filter with min_accuracy (0.80) first
+    accurate_candidates = {k: v for k, v in candidates_map.items() if v >= min_accuracy}
 
-        partial_bonus = 0.0
-        if any(w in clean_lower for w in raw_words):
-            partial_bonus = 0.15
+    # Fallback to score >= 0.60 if no candidate reaches 80% accuracy threshold
+    final_candidates = accurate_candidates if accurate_candidates else candidates_map
 
-        score = max(seq_ratio, token_ratio) + partial_bonus
-
-        if score >= 0.35:
-            candidates_map[clean_t] = score
-
-    sorted_suggestions = sorted(candidates_map.keys(), key=lambda k: candidates_map[k], reverse=True)
+    sorted_suggestions = sorted(final_candidates.keys(), key=lambda k: final_candidates[k], reverse=True)
     top_suggestions = sorted_suggestions[:limit]
 
     if len(SUGGESTION_CACHE) > MAX_SUGGESTION_CACHE_SIZE:
