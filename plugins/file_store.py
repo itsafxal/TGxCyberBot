@@ -112,7 +112,7 @@ async def gen_link_batch(bot, message):
                 await status.edit(f"Total: {total}\nProcessed: {valid}")
 
     fname = f"batch_{message.from_user.id}.json"
-    with open(fname, "w") as f:
+    with open(fname, "w", encoding="utf-8") as f:
         json.dump(outlist, f, indent=2)
 
     target_channel = LOG_CHANNEL or message.chat.id

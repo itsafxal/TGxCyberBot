@@ -316,7 +316,7 @@ async def start(client, message):
         try:
             file_id = data.split("BATCH-", 1)[1]
             file_path = await client.download_media(file_id)
-            with open(file_path, "r") as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 file_list = json.load(f)
             os.remove(file_path)
         except Exception as e:
