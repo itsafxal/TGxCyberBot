@@ -506,8 +506,7 @@ async def get_stream_buttons_async(file_id=None, file_name=None):
     url = await resolve_tmdb_stream_url(file_name=file_name, file_id=file_id)
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🖥️ Stream Online", url=url),
-            InlineKeyboardButton("⚡ Fast Download", url=url)
+            InlineKeyboardButton("🖥️ Watch Online on Website", url=url)
         ]
     ])
 
@@ -533,8 +532,7 @@ def get_stream_buttons(file_id=None, file_name=None, stream_url=None):
 
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🖥️ Stream Online", url=url),
-            InlineKeyboardButton("⚡ Fast Download", url=url)
+            InlineKeyboardButton("🖥️ Watch Online on Website", url=url)
         ]
     ])
 

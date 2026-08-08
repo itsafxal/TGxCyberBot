@@ -173,8 +173,7 @@ async def announce_new_movie(bot, media):
             InlineKeyboardButton("🔍 Search in Bot", url=search_url)
         ],
         [
-            InlineKeyboardButton("🖥️ Stream Online", url=stream_url),
-            InlineKeyboardButton("⚡ Fast Download", url=stream_url)
+            InlineKeyboardButton("🖥️ Watch Online on Website", url=stream_url)
         ]
     ])
 
