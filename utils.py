@@ -3,6 +3,7 @@ import asyncio
 import aiohttp
 import re
 import os
+from urllib.parse import quote
 from datetime import datetime, timedelta
 from typing import Union, List, Tuple
 from pyrogram import Client, enums
@@ -529,5 +530,13 @@ def get_stream_buttons(file_id=None, file_name=None, stream_url=None):
             InlineKeyboardButton("⚡ Fast Download", url=url)
         ]
     ])
+
+
+def get_search_url(query: str) -> str:
+    from info import STREAM_URL
+    base = STREAM_URL.rstrip('/')
+    clean_q = str(query or "").strip()
+    return f"{base}/search/{quote(clean_q)}" if clean_q else f"{base}/search"
+
 
 
