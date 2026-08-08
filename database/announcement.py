@@ -178,15 +178,18 @@ async def announce_new_movie(bot, media):
     ])
 
     poster_url = metadata["poster"]
+    fallback_poster = "https://telegra.ph/file/69c84188c600122e23293.jpg"
 
     for channel_id in target_channels:
         success = False
         max_retries = 3
+        current_poster = poster_url
+
         for attempt in range(max_retries):
             try:
                 await bot.send_photo(
                     chat_id=channel_id,
-                    photo=poster_url,
+                    photo=current_poster,
                     caption=caption_text,
                     reply_markup=reply_markup,
                     parse_mode=enums.ParseMode.HTML
@@ -199,10 +202,29 @@ async def announce_new_movie(bot, media):
                 await asyncio.sleep(e.value + 1)
             except RPCError as e:
                 logger.error(f"[ANNOUNCEMENT] RPC Error posting to channel {channel_id} (Attempt {attempt+1}/{max_retries}): {e}")
-                await asyncio.sleep(2 ** attempt)
+                if any(err_code in str(e) for err_code in ["WEBPAGE_MEDIA_EMPTY", "MEDIA_EMPTY", "PHOTO_INVALID", "URL_INVALID"]):
+                    if current_poster != fallback_poster:
+                        logger.info(f"[ANNOUNCEMENT] Retrying '{clean_title}' with fallback poster...")
+                        current_poster = fallback_poster
+                        continue
+                    else:
+                        try:
+                            await bot.send_message(
+                                chat_id=channel_id,
+                                text=caption_text,
+                                reply_markup=reply_markup,
+                                parse_mode=enums.ParseMode.HTML
+                            )
+                            success = True
+                            logger.info(f"[ANNOUNCEMENT] ✅ Successfully posted text announcement for '{clean_title}' to channel {channel_id}")
+                            break
+                        except Exception as text_err:
+                            logger.error(f"[ANNOUNCEMENT] Text fallback failed for channel {channel_id}: {text_err}")
+                await asyncio.sleep(1)
             except Exception as e:
                 logger.error(f"[ANNOUNCEMENT] Unexpected error posting to channel {channel_id}: {e}")
                 break
 
         if not success:
             logger.error(f"[ANNOUNCEMENT] ❌ Failed to post '{clean_title}' to channel {channel_id} after all attempts.")
+
