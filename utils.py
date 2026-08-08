@@ -426,10 +426,34 @@ def premium_emoji(text, emoji_map):
 
 TMDB_CACHE = {}
 
+def clean_file_name_for_search(file_name: str) -> str:
+    if not file_name:
+        return ""
+    raw = str(file_name)
+    se_match = re.search(r"(?i)\bS(\d+)\s*E(\d+)\b", raw)
+    if not se_match:
+        se_match = re.search(r"(?i)\b(\d+)x(\d+)\b", raw)
+    
+    year_match = re.search(r"\b(19\d\d|20\d\d)\b", raw)
+    
+    clean = raw
+    if se_match:
+        clean = clean[:se_match.start()]
+    elif year_match:
+        clean = clean[:year_match.start()]
+    
+    clean = re.sub(r"📂 Fɪʟᴇ ɴᴀṁᴇ :", "", clean)
+    clean = re.sub(r"[\[\(_\.\-]", " ", clean)
+    clean = re.sub(r"\b(720p|1080p|2160p|4k|HDRip|WEBRip|WEB-DL|BluRay|HEVC|x264|x265|AAC|ESub|Hindi|Tamil|Telugu|English|Malayalam)\b", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\s+", " ", clean).strip()
+    return clean
+
+
 async def resolve_tmdb_stream_url(file_name: str = None, file_id: str = None) -> str:
     from info import STREAM_URL
-    if not file_name:
-        return f"{STREAM_URL.rstrip('/')}/?file={file_id}" if file_id else STREAM_URL
+    clean = clean_file_name_for_search(file_name)
+    if not clean:
+        return f"{STREAM_URL.rstrip('/')}/search"
 
     raw = str(file_name)
     se_match = re.search(r"(?i)\bS(\d+)\s*E(\d+)\b", raw)
@@ -442,20 +466,6 @@ async def resolve_tmdb_stream_url(file_name: str = None, file_id: str = None) ->
 
     year_match = re.search(r"\b(19\d\d|20\d\d)\b", raw)
     year = year_match.group(1) if year_match else None
-
-    clean = raw
-    if se_match:
-        clean = clean[:se_match.start()]
-    elif year_match:
-        clean = clean[:year_match.start()]
-    
-    clean = re.sub(r"📂 Fɪʟᴇ ɴᴀṁᴇ :", "", clean)
-    clean = re.sub(r"[\[\(_\.\-]", " ", clean)
-    clean = re.sub(r"\b(720p|1080p|2160p|4k|HDRip|WEBRip|WEB-DL|BluRay|HEVC|x264|x265|AAC|ESub|Hindi|Tamil|Telugu|English|Malayalam)\b", "", clean, flags=re.IGNORECASE)
-    clean = re.sub(r"\s+", " ", clean).strip()
-
-    if not clean:
-        return f"{STREAM_URL.rstrip('/')}/?file={file_id}" if file_id else STREAM_URL
 
     cache_key = f"{clean.lower()}_{year}_{is_tv}"
     if cache_key in TMDB_CACHE:
@@ -481,13 +491,14 @@ async def resolve_tmdb_stream_url(file_name: str = None, file_id: str = None) ->
         except Exception as e:
             logger.debug(f"TMDB search failed for {clean}: {e}")
 
+    base = STREAM_URL.rstrip('/')
     if tmdb_id:
         if is_tv or media_type == "tv":
-            return f"https://fhaaah.vercel.app/watch/tv/{tmdb_id}?s={season}&e={episode}"
+            return f"{base}/watch/tv/{tmdb_id}?s={season}&e={episode}"
         else:
-            return f"https://fhaaah.vercel.app/watch/movie/{tmdb_id}"
+            return f"{base}/watch/movie/{tmdb_id}"
 
-    return f"{STREAM_URL.rstrip('/')}/?file={file_id}" if file_id else STREAM_URL
+    return f"{base}/search/{quote(clean)}"
 
 
 async def get_stream_buttons_async(file_id=None, file_name=None):
@@ -504,25 +515,21 @@ async def get_stream_buttons_async(file_id=None, file_name=None):
 def get_stream_buttons(file_id=None, file_name=None, stream_url=None):
     from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     from info import STREAM_URL
+    base = STREAM_URL.rstrip('/')
     if stream_url:
         url = stream_url
-    elif not file_id and not file_name:
-        url = STREAM_URL
-    else:
-        raw = str(file_name or "")
-        se_match = re.search(r"(?i)\bS(\d+)\s*E(\d+)\b", raw)
-        if not se_match:
-            se_match = re.search(r"(?i)\b(\d+)x(\d+)\b", raw)
-        if se_match:
-            s, e = int(se_match.group(1)), int(se_match.group(2))
-            url = f"https://fhaaah.vercel.app/watch/tv/{file_id or '1'}?s={s}&e={e}"
+    elif file_name:
+        clean = clean_file_name_for_search(file_name)
+        if clean:
+            url = f"{base}/search/{quote(clean)}"
         elif file_id and str(file_id).isdigit():
-            url = f"https://fhaaah.vercel.app/watch/movie/{file_id}"
-        elif "?" in STREAM_URL:
-            url = f"{STREAM_URL}&file={file_id}"
+            url = f"{base}/watch/movie/{file_id}"
         else:
-            base_url = STREAM_URL.rstrip('/')
-            url = f"{base_url}/?file={file_id}" if file_id else STREAM_URL
+            url = f"{base}/search"
+    elif file_id and str(file_id).isdigit():
+        url = f"{base}/watch/movie/{file_id}"
+    else:
+        url = f"{base}/search"
 
     return InlineKeyboardMarkup([
         [
@@ -530,6 +537,7 @@ def get_stream_buttons(file_id=None, file_name=None, stream_url=None):
             InlineKeyboardButton("⚡ Fast Download", url=url)
         ]
     ])
+
 
 
 def get_search_url(query: str) -> str:
