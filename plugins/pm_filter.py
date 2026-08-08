@@ -9,7 +9,7 @@ import logging
 from pyrogram import Client, filters, enums
 from pyrogram.enums import ButtonStyle
 from pyrogram.errors import FloodWait, UserIsBlocked, MessageNotModified, PeerIdInvalid, QueryIdInvalid
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto, ReplyParameters
 
 from datetime import datetime, timedelta
 
@@ -632,7 +632,7 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
                 delete_reply = None
                 if query.message:
                     try:
-                        delete_reply = await query.message.reply(DELETE_TXT, reply_to_message_id=sent_msg.id, parse_mode=enums.ParseMode.MARKDOWN)
+                        delete_reply = await query.message.reply(DELETE_TXT, reply_parameters=ReplyParameters(message_id=sent_msg.id), parse_mode=enums.ParseMode.MARKDOWN)
                     except Exception:
                         delete_reply = await client.send_message(query.from_user.id, DELETE_TXT, parse_mode=enums.ParseMode.MARKDOWN)
                 

@@ -4,7 +4,7 @@ from typing import List, Dict, Any
 from pyrogram import Client, filters, enums
 from pyrogram.errors import FloodWait
 from pyrogram.errors.exceptions.bad_request_400 import ChannelInvalid, ChatAdminRequired, UsernameInvalid, UsernameNotModified
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, ReplyParameters
 
 from info import ADMINS, LOG_CHANNEL, DATABASE_URI, DATABASE_NAME
 from utils import temp
@@ -351,7 +351,7 @@ async def index_files_callback(bot: Client, query: Message):
         await query.message.delete()
         await bot.send_message(int(from_user),
                                f'❌ Your submission for indexing **{chat}** has been **declined** by our moderators.',
-                               reply_to_message_id=int(lst_msg_id),
+                               reply_parameters=ReplyParameters(message_id=int(lst_msg_id)),
                                parse_mode=enums.ParseMode.MARKDOWN)
         return
 
@@ -368,7 +368,7 @@ async def index_files_callback(bot: Client, query: Message):
         if int(from_user) not in ADMINS:
             await bot.send_message(int(from_user),
                                    f'✅ Your request to index **{chat}** has been **accepted** by our moderators and will commence shortly!',
-                                   reply_to_message_id=int(lst_msg_id),
+                                   reply_parameters=ReplyParameters(message_id=int(lst_msg_id)),
                                    parse_mode=enums.ParseMode.MARKDOWN)
 
         # Improved initial message for indexing start
@@ -401,7 +401,7 @@ async def index_files_callback(bot: Client, query: Message):
         LOGGER.error(f"Invalid action for index callback: {action}")
         await query.answer("🚫 Unknown action. Please try again or contact support.", show_alert=True)
 
-@Client.on_message(filters.user(ADMINS) & (filters.forwarded | (filters.regex("(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")) & filters.text ) & filters.private & filters.incoming)
+@Client.on_message(filters.user(ADMINS) & (filters.forwarded | (filters.regex(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")) & filters.text ) & filters.private & filters.incoming)
 async def send_for_index(bot: Client, message: Message):
     chat_id = None
     last_msg_id = None
