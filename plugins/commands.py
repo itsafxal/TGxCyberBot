@@ -14,7 +14,7 @@ from Script import script
 from database.ia_filterdb import Media2, Media3, get_file_details, unpack_new_file_id
 from database.users_chats_db import db
 from info import ADMINS, LOG_CHANNEL, CUSTOM_FILE_CAPTION, AUTO_DEL, PICS
-from utils import get_size, is_requested_one, is_requested_two, is_requested_three, temp, check_loop_sub, check_loop_sub1, check_loop_sub2, check_loop_sub3, temp, get_stream_buttons
+from utils import get_size, is_requested_one, is_requested_two, is_requested_three, temp, check_loop_sub, check_loop_sub1, check_loop_sub2, check_loop_sub3, temp, get_stream_buttons, get_stream_buttons_async
 from sql.db import delete_all_files_sql, delete_file_sql
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -342,12 +342,13 @@ async def start(client, message):
                     except Exception as ce:
                         logger.warning(f"Caption formatting error: {ce}")
 
+                stream_markup = await get_stream_buttons_async(file_id=msg.get("file_id"), file_name=title)
                 ok = await client.send_cached_media(
                     chat_id=message.chat.id,
                     file_id=msg.get("file_id"),
                     caption=caption,
                     protect_content=msg.get("protect", False),
-                    reply_markup=get_stream_buttons(msg.get("file_id"))
+                    reply_markup=stream_markup
                 )
                 #schedule_message_deletion(client, ok, delay_seconds=AUTO_DEL)
                 await asyncio.sleep(1)
@@ -397,11 +398,12 @@ async def start(client, message):
                         except Exception as ce:
                             logger.warning(f"Caption format fail: {ce}")
 
+                    stream_markup = await get_stream_buttons_async(file_name=title)
                     ok = await msg.copy(
                         chat_id=message.chat.id,
                         caption=caption,
                         protect_content=(protect == "/pbatch"),
-                        reply_markup=get_stream_buttons()
+                        reply_markup=stream_markup
                     )
                     #schedule_message_deletion(client, ok, delay_seconds=AUTO_DEL)
                     await asyncio.sleep(1)
@@ -443,7 +445,8 @@ async def start(client, message):
                     except Exception as ce:
                         logger.warning(f"Caption formatting failed: {ce}")
  
-                await msg.edit_caption(caption)
+                stream_markup = await get_stream_buttons_async(file_id=file_id, file_name=title)
+                await msg.edit_caption(caption, reply_markup=stream_markup)
                 #schedule_message_deletion(client, msg, delay_seconds=AUTO_DEL)
                 return
             except Exception as e:
@@ -467,12 +470,13 @@ async def start(client, message):
         f_caption = f"{files.file_name}"
 
     try:
+        stream_markup = await get_stream_buttons_async(file_id=file_id, file_name=title)
         ok = await client.send_cached_media(
             chat_id=user_id,
             file_id=file_id,
             caption=f_caption,
             protect_content=True if prefix == 'filep' else False,
-            reply_markup=get_stream_buttons(file_id)
+            reply_markup=stream_markup
         )
         #delete_notice = await ok.reply(DELETE_TXT)
         #asyncio.create_task(auto_delete_message(delete_notice, 15))

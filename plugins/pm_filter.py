@@ -20,7 +20,7 @@ from database.ia_filterdb import get_file_details, Media2, Media3, db as clientD
 from database.gfilters_mdb import find_gfilter, get_gfilters
 from info import ADMINS, CUSTOM_FILE_CAPTION, AUTO_DEL, MAX_FILES
 from sql.db import get_search_results, delete_file_sql, get_suggestions_sql
-from utils import get_size, temp, is_requested_one, is_requested_two, add_auto_delete_message, premium_emoji, get_stream_buttons
+from utils import get_size, temp, is_requested_one, is_requested_two, add_auto_delete_message, premium_emoji, get_stream_buttons, get_stream_buttons_async
 
 # --- Configuration ---
 logger = logging.getLogger(__name__)
@@ -621,12 +621,13 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
         await query.answer("✅ Checking complete. Sending file...", show_alert=False)
         
         try:
+            stream_markup = await get_stream_buttons_async(file_id=file_id, file_name=files[0].file_name)
             sent_msg = await client.send_cached_media(
                 chat_id=query.from_user.id,
                 file_id=file_id,
                 caption=get_file_caption(files[0]),
                 protect_content=(ident == "checksubp"),
-                reply_markup=get_stream_buttons(file_id),
+                reply_markup=stream_markup,
                 parse_mode=enums.ParseMode.MARKDOWN
             )
             if sent_msg:

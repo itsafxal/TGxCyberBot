@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import aiohttp
 import re
 import os
 from datetime import datetime, timedelta
@@ -422,22 +423,111 @@ def premium_emoji(text, emoji_map):
 
     return entities
 
-def get_stream_buttons(file_id=None):
-    from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+TMDB_CACHE = {}
+
+async def resolve_tmdb_stream_url(file_name: str = None, file_id: str = None) -> str:
     from info import STREAM_URL
-    if not file_id:
-        url = STREAM_URL
-    elif "{file_id}" in STREAM_URL:
-        url = STREAM_URL.format(file_id=file_id)
-    elif "?" in STREAM_URL:
-        url = f"{STREAM_URL}&file={file_id}"
+    if not file_name:
+        return f"{STREAM_URL.rstrip('/')}/?file={file_id}" if file_id else STREAM_URL
+
+    raw = str(file_name)
+    se_match = re.search(r"(?i)\bS(\d+)\s*E(\d+)\b", raw)
+    if not se_match:
+        se_match = re.search(r"(?i)\b(\d+)x(\d+)\b", raw)
+    
+    season = int(se_match.group(1)) if se_match else 1
+    episode = int(se_match.group(2)) if se_match else 1
+    is_tv = bool(se_match)
+
+    year_match = re.search(r"\b(19\d\d|20\d\d)\b", raw)
+    year = year_match.group(1) if year_match else None
+
+    clean = raw
+    if se_match:
+        clean = clean[:se_match.start()]
+    elif year_match:
+        clean = clean[:year_match.start()]
+    
+    clean = re.sub(r"📂 Fɪʟᴇ ɴᴀṁᴇ :", "", clean)
+    clean = re.sub(r"[\[\(_\.\-]", " ", clean)
+    clean = re.sub(r"\b(720p|1080p|2160p|4k|HDRip|WEBRip|WEB-DL|BluRay|HEVC|x264|x265|AAC|ESub|Hindi|Tamil|Telugu|English|Malayalam)\b", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\s+", " ", clean).strip()
+
+    if not clean:
+        return f"{STREAM_URL.rstrip('/')}/?file={file_id}" if file_id else STREAM_URL
+
+    cache_key = f"{clean.lower()}_{year}_{is_tv}"
+    if cache_key in TMDB_CACHE:
+        tmdb_id, media_type = TMDB_CACHE[cache_key]
     else:
-        base_url = STREAM_URL.rstrip('/')
-        url = f"{base_url}/?file={file_id}"
+        tmdb_id, media_type = None, None
+        try:
+            api_key = "15d2d0e07d96a23973561ed9204b4a16"
+            query_url = f"https://api.themoviedb.org/3/search/multi?api_key={api_key}&query={clean.replace(' ', '+')}"
+            if year:
+                query_url += f"&year={year}"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(query_url, timeout=aiohttp.ClientTimeout(total=3)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        results = data.get("results", [])
+                        if results:
+                            target = results[0]
+                            tmdb_id = target.get("id")
+                            media_type = target.get("media_type")
+                            TMDB_CACHE[cache_key] = (tmdb_id, media_type)
+        except Exception as e:
+            logger.debug(f"TMDB search failed for {clean}: {e}")
+
+    if tmdb_id:
+        if is_tv or media_type == "tv":
+            return f"https://fhaaah.vercel.app/watch/tv/{tmdb_id}?s={season}&e={episode}"
+        else:
+            return f"https://fhaaah.vercel.app/watch/movie/{tmdb_id}"
+
+    return f"{STREAM_URL.rstrip('/')}/?file={file_id}" if file_id else STREAM_URL
+
+
+async def get_stream_buttons_async(file_id=None, file_name=None):
+    from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    url = await resolve_tmdb_stream_url(file_name=file_name, file_id=file_id)
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("🖥️ Stream Online", url=url),
             InlineKeyboardButton("⚡ Fast Download", url=url)
         ]
     ])
+
+
+def get_stream_buttons(file_id=None, file_name=None, stream_url=None):
+    from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from info import STREAM_URL
+    if stream_url:
+        url = stream_url
+    elif not file_id and not file_name:
+        url = STREAM_URL
+    else:
+        raw = str(file_name or "")
+        se_match = re.search(r"(?i)\bS(\d+)\s*E(\d+)\b", raw)
+        if not se_match:
+            se_match = re.search(r"(?i)\b(\d+)x(\d+)\b", raw)
+        if se_match:
+            s, e = int(se_match.group(1)), int(se_match.group(2))
+            url = f"https://fhaaah.vercel.app/watch/tv/{file_id or '1'}?s={s}&e={e}"
+        elif file_id and str(file_id).isdigit():
+            url = f"https://fhaaah.vercel.app/watch/movie/{file_id}"
+        elif "?" in STREAM_URL:
+            url = f"{STREAM_URL}&file={file_id}"
+        else:
+            base_url = STREAM_URL.rstrip('/')
+            url = f"{base_url}/?file={file_id}" if file_id else STREAM_URL
+
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🖥️ Stream Online", url=url),
+            InlineKeyboardButton("⚡ Fast Download", url=url)
+        ]
+    ])
+
 

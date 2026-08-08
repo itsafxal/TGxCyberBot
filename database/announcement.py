@@ -9,7 +9,7 @@ from pyrogram.errors import FloodWait, RPCError
 
 from info import POST_CHANNELS, LOG_CHANNEL, STREAM_URL
 from Script import script
-from utils import temp
+from utils import temp, resolve_tmdb_stream_url
 
 logger = logging.getLogger(__name__)
 
@@ -165,14 +165,16 @@ async def announce_new_movie(bot, media):
         bot_username=bot_username
     )
 
+    stream_url = await resolve_tmdb_stream_url(file_name=clean_name)
+
     reply_markup = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("📥 Get Movie", url=search_url),
             InlineKeyboardButton("🔍 Search in Bot", url=search_url)
         ],
         [
-            InlineKeyboardButton("🖥️ Stream Online", url=STREAM_URL),
-            InlineKeyboardButton("⚡ Fast Download", url=STREAM_URL)
+            InlineKeyboardButton("🖥️ Stream Online", url=stream_url),
+            InlineKeyboardButton("⚡ Fast Download", url=stream_url)
         ]
     ])
 
