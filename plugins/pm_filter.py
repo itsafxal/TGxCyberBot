@@ -542,45 +542,72 @@ async def filter_quality_cb_handler(client: Client, query: CallbackQuery):
 async def spell_check_cb_handler(client: Client, query: CallbackQuery):
     """Handles the user clicking a spell check suggestion button."""
     try:
-        _, search_key, index_str = query.data.split("#")
-        index = int(index_str)
-    except ValueError:
-        return await query.answer("Iɴᴠᴀʟɪᴅ sᴜɢɢᴇsᴛɪᴏɴ ᴅᴀᴛᴀ.", show_alert=True)
+        try:
+            _, search_key, index_str = query.data.split("#")
+            index = int(index_str)
+        except ValueError:
+            try:
+                await query.answer("Iɴᴠᴀʟɪᴅ sᴜɢɢᴇsᴛɪᴏɴ ᴅᴀᴛᴀ.", show_alert=True)
+            except (QueryIdInvalid, Exception):
+                pass
+            return
 
-    requested_user_id = int(search_key.split("_")[0])
-    if query.from_user.id != requested_user_id:
-        return await query.answer(
-            f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\n"
-            f"ᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
-            show_alert=True,
-        )
+        requested_user_id = int(search_key.split("_")[0])
+        if query.from_user.id != requested_user_id:
+            try:
+                await query.answer(
+                    f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\n"
+                    f"ᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇsᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
+                    show_alert=True,
+                )
+            except (QueryIdInvalid, Exception):
+                pass
+            return
 
-    suggestions = SEARCH_CACHE.get(f"spell_{search_key}")
-    if not suggestions or index >= len(suggestions):
-        return await query.answer("Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ sᴇᴀʀᴄʜ ᴀɢᴀɪɴ. 🔰", show_alert=True)
+        suggestions = SEARCH_CACHE.get(f"spell_{search_key}")
+        if not suggestions or index >= len(suggestions):
+            try:
+                await query.answer("Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ sᴇᴀʀᴄʜ ᴀɢᴀɪɴ. 🔰", show_alert=True)
+            except (QueryIdInvalid, Exception):
+                pass
+            return
 
-    selected_suggestion = suggestions[index]
-    await query.answer(f"🔎 Sᴇᴀʀᴄʜɪɴɢ ғᴏʀ: {selected_suggestion}", show_alert=False)
+        selected_suggestion = suggestions[index]
+        try:
+            await query.answer(f"🔎 Sᴇᴀʀᴄʜɪɴɢ ғᴏʀ: {selected_suggestion}", show_alert=False)
+        except (QueryIdInvalid, Exception):
+            pass
 
-    files, offset = await get_search_results(selected_suggestion, offset=0)
+        files, offset = await get_search_results(selected_suggestion, offset=0)
 
-    if not files:
-        return await query.answer(f"🚫 Nᴏ ғɪʟᴇs ғᴏᴜɴᴅ ғᴏʀ {selected_suggestion}.", show_alert=True)
+        if not files:
+            try:
+                await query.edit_message_text(
+                    text=f"🚫 Nᴏ ғɪʟᴇs ғᴏᴜɴᴅ ғᴏʀ <b>{selected_suggestion}</b>.",
+                    parse_mode=enums.ParseMode.HTML
+                )
+            except (MessageNotModified, Exception):
+                pass
+            return
 
-    cyber = query.from_user.mention
-    btn = generate_main_buttons(files, offset, search_key)
-    SEARCH_CACHE.set(search_key, selected_suggestion)
+        cyber = query.from_user.mention
+        btn = generate_main_buttons(files, offset, search_key)
+        SEARCH_CACHE.set(search_key, selected_suggestion)
 
-    try:
-        await query.edit_message_text(
-            text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=selected_suggestion, page=1),
-            reply_markup=InlineKeyboardMarkup(btn),
-            parse_mode=enums.ParseMode.HTML
-        )
-    except MessageNotModified:
+        try:
+            await query.edit_message_text(
+                text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=selected_suggestion, page=1),
+                reply_markup=InlineKeyboardMarkup(btn),
+                parse_mode=enums.ParseMode.HTML
+            )
+        except MessageNotModified:
+            pass
+        except Exception as e:
+            logger.exception(f"Error updating message for suggestion search: {e}")
+    except QueryIdInvalid:
         pass
     except Exception as e:
-        logger.exception(f"Error updating message for suggestion search: {e}")
+        logger.exception(f"Error in spell_check_cb_handler: {e}")
 
 @Client.on_callback_query()
 async def main_cb_handler(client: Client, query: CallbackQuery):
