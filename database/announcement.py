@@ -7,7 +7,7 @@ from pyrogram import enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import FloodWait, RPCError
 
-from info import POST_CHANNELS, LOG_CHANNEL
+from info import POST_CHANNELS, LOG_CHANNEL, STREAM_URL
 from Script import script
 from utils import temp
 
@@ -169,6 +169,10 @@ async def announce_new_movie(bot, media):
         [
             InlineKeyboardButton("📥 Get Movie", url=search_url),
             InlineKeyboardButton("🔍 Search in Bot", url=search_url)
+        ],
+        [
+            InlineKeyboardButton("🖥️ Stream Online", url=STREAM_URL),
+            InlineKeyboardButton("⚡ Fast Download", url=STREAM_URL)
         ]
     ])
 

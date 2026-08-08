@@ -421,3 +421,15 @@ def premium_emoji(text, emoji_map):
         )
 
     return entities
+
+def get_stream_buttons(file_id=None):
+    from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from info import STREAM_URL
+    url = f"{STREAM_URL}?id={file_id}" if (file_id and STREAM_URL.endswith('/')) else (f"{STREAM_URL}&id={file_id}" if file_id else STREAM_URL)
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🖥️ Stream Online", url=url),
+            InlineKeyboardButton("⚡ Fast Download", url=url)
+        ]
+    ])
+

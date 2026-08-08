@@ -14,7 +14,7 @@ from Script import script
 from database.ia_filterdb import Media2, Media3, get_file_details, unpack_new_file_id
 from database.users_chats_db import db
 from info import ADMINS, LOG_CHANNEL, CUSTOM_FILE_CAPTION, AUTO_DEL, PICS
-from utils import get_size, is_requested_one, is_requested_two, is_requested_three, temp, check_loop_sub, check_loop_sub1, check_loop_sub2, check_loop_sub3, temp
+from utils import get_size, is_requested_one, is_requested_two, is_requested_three, temp, check_loop_sub, check_loop_sub1, check_loop_sub2, check_loop_sub3, temp, get_stream_buttons
 from sql.db import delete_all_files_sql, delete_file_sql
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -347,6 +347,7 @@ async def start(client, message):
                     file_id=msg.get("file_id"),
                     caption=caption,
                     protect_content=msg.get("protect", False),
+                    reply_markup=get_stream_buttons(msg.get("file_id"))
                 )
                 #schedule_message_deletion(client, ok, delay_seconds=AUTO_DEL)
                 await asyncio.sleep(1)
@@ -399,7 +400,8 @@ async def start(client, message):
                     ok = await msg.copy(
                         chat_id=message.chat.id,
                         caption=caption,
-                        protect_content=(protect == "/pbatch")
+                        protect_content=(protect == "/pbatch"),
+                        reply_markup=get_stream_buttons()
                     )
                     #schedule_message_deletion(client, ok, delay_seconds=AUTO_DEL)
                     await asyncio.sleep(1)
@@ -423,7 +425,8 @@ async def start(client, message):
                 msg = await client.send_cached_media(
                     chat_id=user_id,
                     file_id=file_id,
-                    protect_content=(prefix == "filep")
+                    protect_content=(prefix == "filep"),
+                    reply_markup=get_stream_buttons(file_id)
                 )
                 media = getattr(msg, msg.media.value)
                 title = getattr(media, "file_name", "Untitled")
@@ -469,6 +472,7 @@ async def start(client, message):
             file_id=file_id,
             caption=f_caption,
             protect_content=True if prefix == 'filep' else False,
+            reply_markup=get_stream_buttons(file_id)
         )
         #delete_notice = await ok.reply(DELETE_TXT)
         #asyncio.create_task(auto_delete_message(delete_notice, 15))

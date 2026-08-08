@@ -58,6 +58,7 @@ POST_CHANNELS = post_channels if post_channels else ([LOG_CHANNEL] if LOG_CHANNE
 SUPPORT_CHAT = environ.get('SUPPORT_CHAT')
 CUSTOM_FILE_CAPTION = environ.get("CUSTOM_FILE_CAPTION", script.CAPTION_TXT)
 MAX_LIST_ELM = environ.get("MAX_LIST_ELM", None)
+STREAM_URL = environ.get("STREAM_URL", "https://fhaaah.vercel.app/")
 
 LOG_STR = "Current Customized Configurations are:-\n"
 LOG_STR += (f"CUSTOM_FILE_CAPTION enabled with value {CUSTOM_FILE_CAPTION}, your files will be send along with this customized caption.\n" if CUSTOM_FILE_CAPTION else "No CUSTOM_FILE_CAPTION Found, Default captions of file will be used.\n")
