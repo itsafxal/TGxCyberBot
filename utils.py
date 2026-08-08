@@ -473,7 +473,7 @@ async def resolve_tmdb_stream_url(file_name: str = None, file_id: str = None) ->
     else:
         tmdb_id, media_type = None, None
         try:
-            api_key = "15d2d0e07d96a23973561ed9204b4a16"
+            api_key = "4e44d9029b1270a757cddc766a1bcb63"
             query_url = f"https://api.themoviedb.org/3/search/multi?api_key={api_key}&query={clean.replace(' ', '+')}"
             if year:
                 query_url += f"&year={year}"
