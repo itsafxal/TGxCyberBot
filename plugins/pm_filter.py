@@ -339,7 +339,10 @@ async def languages_cb_handler(client: Client, query: CallbackQuery):
         icon_custom_emoji_id=5210912043019822307
     )])
 
-    await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
+    try:
+        await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
+    except MessageNotModified:
+        pass
     await query.answer()
         
 @Client.on_callback_query(filters.regex(r"^fl#"))
@@ -625,10 +628,23 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
                 protect_content=(ident == "checksubp"),
                 parse_mode=enums.ParseMode.MARKDOWN
             )
-            delete_reply = await query.message.reply(DELETE_TXT, reply_to_message_id=sent_msg.id, parse_mode=enums.ParseMode.MARKDOWN)
-            
-            await asyncio.sleep(AUTO_DEL)
-            await asyncio.gather(delete_reply.delete(), query.message.delete(), sent_msg.delete(), return_exceptions=True)
+            if sent_msg:
+                delete_reply = None
+                if query.message:
+                    try:
+                        delete_reply = await query.message.reply(DELETE_TXT, reply_to_message_id=sent_msg.id, parse_mode=enums.ParseMode.MARKDOWN)
+                    except Exception:
+                        delete_reply = await client.send_message(query.from_user.id, DELETE_TXT, parse_mode=enums.ParseMode.MARKDOWN)
+                
+                await asyncio.sleep(AUTO_DEL)
+                tasks = [sent_msg.delete()]
+                if delete_reply:
+                    tasks.append(delete_reply.delete())
+                if query.message:
+                    tasks.append(query.message.delete())
+                await asyncio.gather(*tasks, return_exceptions=True)
+            else:
+                await query.answer("❌ Failed to send file.", show_alert=True)
             
         except FloodWait as e:
             await asyncio.sleep(e.value)

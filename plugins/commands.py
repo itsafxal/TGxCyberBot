@@ -313,15 +313,21 @@ async def start(client, message):
 
     if data.startswith("BATCH-"):
         sts = await message.reply("Please wait")
+        file_path = None
         try:
             file_id = data.split("BATCH-", 1)[1]
             file_path = await client.download_media(file_id)
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 file_list = json.load(f)
-            os.remove(file_path)
         except Exception as e:
             logger.error(f"BATCH file load failed: {e}")
             return await sts.edit("❌ Failed to load batch file.")
+        finally:
+            if file_path and os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception:
+                    pass
 
         for msg in file_list:
             try:
