@@ -67,42 +67,31 @@ logging.getLogger("asyncio").setLevel(logging.CRITICAL)
 logging.getLogger("motor").setLevel(logging.WARNING)
 logging.getLogger("pymongo").setLevel(logging.WARNING)
 
-# Import plugins with proper error handling
-def load_plugins():
-    """Import all plugin modules with error handling"""
+def load_plugins_manually():
+    """Manually import all plugin modules and return them"""
+    imported_plugins = []
     try:
-        # First, ensure the plugins package is imported
+        # Get the plugins package
         import plugins
-        logger.info(f"Plugins package found at: {plugins.__file__}")
         
         # Get all Python files in plugins directory (excluding __init__.py)
         plugins_dir = Path(plugins.__file__).parent
         plugin_files = [f.stem for f in plugins_dir.glob("*.py") if f.stem != "__init__"]
         
-        if not plugin_files:
-            logger.warning("No plugin files found in plugins directory!")
-            return []
-        
         logger.info(f"Found plugin files: {plugin_files}")
         
-        imported_plugins = []
         for plugin_name in plugin_files:
             try:
                 # Import each plugin module
-                module = __import__(f"plugins.{plugin_name}", fromlist=[plugin_name])
+                module = importlib.import_module(f"plugins.{plugin_name}")
                 imported_plugins.append(module)
-                logger.info(f"Loaded plugin '{plugin_name}'")
-                
-                # Check if module has handlers (for debugging)
-                if hasattr(module, 'handlers'):
-                    logger.info(f"Plugin '{plugin_name}' has handlers")
-                    
+                logger.info(f"✅ Loaded plugin: {plugin_name}")
             except SyntaxError as e:
-                logger.error(f"Syntax error in plugin '{plugin_name}': {e}")
+                logger.error(f"❌ Syntax error in plugin '{plugin_name}': {e}")
             except ImportError as e:
-                logger.error(f"Import error in plugin '{plugin_name}': {e}")
+                logger.error(f"❌ Import error in plugin '{plugin_name}': {e}")
             except Exception as e:
-                logger.error(f"Failed to load plugin '{plugin_name}': {e}", exc_info=True)
+                logger.error(f"❌ Failed to load plugin '{plugin_name}': {e}", exc_info=True)
                 
         return imported_plugins
         
@@ -113,27 +102,44 @@ def load_plugins():
         logger.error(f"Unexpected error loading plugins: {e}", exc_info=True)
         return []
 
-# Load plugins before creating the bot instance
-loaded_plugins = load_plugins()
+# Load plugins manually before creating the bot
+loaded_plugins = load_plugins_manually()
 logger.info(f"Successfully loaded {len(loaded_plugins)} plugins")
 
 class Bot(Client):
     def __init__(self):
-        # Only set plugins config if plugins were loaded successfully
-        plugins_config = {"root": "plugins"} if loaded_plugins else None
-        
+        # IMPORTANT: Disable automatic plugin loading to avoid the error
         super().__init__(
             name=SESSION,
             api_id=API_ID,
             api_hash=API_HASH,
             bot_token=BOT_TOKEN,
             workers=100,
-            plugins=plugins_config,
+            plugins=None,  # Disable automatic plugin loading
             sleep_threshold=5,
         )
         self.schedule = AsyncIOScheduler()
         self.username = None
         self._is_running = False
+        
+        # Manually register handlers from loaded plugins
+        self._register_plugin_handlers()
+
+    def _register_plugin_handlers(self):
+        """Manually register handlers from all loaded plugins"""
+        for plugin in loaded_plugins:
+            try:
+                # Check if the plugin has any decorators registered
+                if hasattr(plugin, '__pyrogram_handlers__'):
+                    for handler_data in plugin.__pyrogram_handlers__:
+                        # Register each handler
+                        self.add_handler(handler_data['handler'], handler_data['group'])
+                    logger.info(f"Registered handlers from plugin: {plugin.__name__}")
+                else:
+                    # Some plugins might register handlers differently
+                    logger.debug(f"No handlers found in plugin: {plugin.__name__}")
+            except Exception as e:
+                logger.error(f"Error registering handlers from plugin {plugin.__name__}: {e}")
 
     async def start(self, **kwargs):
         print("\n[INFO] Bot Initializing...\n")
@@ -147,7 +153,6 @@ class Bot(Client):
                 logger.info(f"Loaded banned users: {len(banned_users)}, banned chats: {len(banned_chats)}")
             except Exception as e:
                 logger.error(f"Failed to load banned users/chats: {e}", exc_info=True)
-                # Continue anyway - we can still run without bans
                 temp.BANNED_USERS = []
                 temp.BANNED_CHATS = []
 
@@ -246,7 +251,6 @@ class Bot(Client):
             
         except Exception as e:
             logger.critical(f"Startup failure: {e}", exc_info=True)
-            # Attempt to send error notification
             if OWNER_ID:
                 try:
                     await self.send_message(
