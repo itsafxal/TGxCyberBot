@@ -43,7 +43,6 @@ async def answer(bot, query):
         file_type = None
 
     offset = int(query.offset or 0)
-    reply_markup = get_reply_markup(query=string)
     files, next_offset = await get_search_results(string,
                                                   file_type=file_type,
                                                   max_results=10,
@@ -66,11 +65,10 @@ async def answer(bot, query):
                 title=file.file_name,
                 document_file_id=file.file_id,
                 caption=f_caption,
-                description=f'Size: {get_size(file.file_size)}\nType: {file.file_type}',
-                reply_markup=reply_markup))
+                description=f'Size: {get_size(file.file_size)}\nType: {file.file_type}'))
 
     if results:
-        switch_pm_text = f"{emoji.FILE_FOLDER} Results - {total}"
+        switch_pm_text = f"📂 Results - {len(files)}"
         if string:
             switch_pm_text += f" for {string}"
         try:
@@ -85,7 +83,7 @@ async def answer(bot, query):
         except Exception as e:
             logging.exception(str(e))
     else:
-        switch_pm_text = f'{emoji.CROSS_MARK} No results'
+        switch_pm_text = "❌ No results"
         if string:
             switch_pm_text += f' for "{string}"'
 

@@ -1,3 +1,4 @@
+import os
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.errors.exceptions.bad_request_400 import MessageTooLong, PeerIdInvalid
@@ -190,9 +191,9 @@ async def re_enable_chat(bot, message):
     try:
         await bot.send_message(
             chat_id=chat_,
-            text=f"🎉 **Bot Re-enabled!**\n\n"
-                 f"My operations have been re-enabled in this group. "
-                 f"I'm back and ready to assist you!",
+            text="🎉 **Bot Re-enabled!**\n\n"
+                 "My operations have been re-enabled in this group. "
+                 "I'm back and ready to assist you!",
             parse_mode=enums.ParseMode.MARKDOWN
         )
     except Exception as e:

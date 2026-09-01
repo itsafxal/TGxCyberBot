@@ -83,7 +83,7 @@ async def check_file(media):
 
 async def bulk_check_files(media_list: List[Any]) -> Dict[str, bool]:
     if not media_list:
-        LOGGER.debug("bulk_check_files: media_list is empty, returning empty dict.")
+        logger.debug("bulk_check_files: media_list is empty, returning empty dict.")
         return {}
 
     file_ids_to_check_set = set()
@@ -96,7 +96,7 @@ async def bulk_check_files(media_list: List[Any]) -> Dict[str, bool]:
 
     file_ids_to_check = list(file_ids_to_check_set)
     if not file_ids_to_check:
-        LOGGER.debug("bulk_check_files: No valid file_ids to check after unpacking, returning empty dict.")
+        logger.debug("bulk_check_files: No valid file_ids to check after unpacking, returning empty dict.")
         return {}
 
     logger.debug(f"bulk_check_files: Checking existence for {len(file_ids_to_check)} unique file IDs.")

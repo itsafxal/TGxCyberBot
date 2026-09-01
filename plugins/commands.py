@@ -13,9 +13,9 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from Script import script
 from database.ia_filterdb import Media2, Media3, get_file_details, unpack_new_file_id
 from database.users_chats_db import db
-from info import ADMINS, LOG_CHANNEL, CUSTOM_FILE_CAPTION, AUTO_DEL, PICS
-from utils import get_size, is_requested_one, is_requested_two, is_requested_three, temp, check_loop_sub, check_loop_sub1, check_loop_sub2, check_loop_sub3, temp, get_stream_buttons, get_stream_buttons_async
-from sql.db import delete_all_files_sql, delete_file_sql
+from info import ADMINS, LOG_CHANNEL, CUSTOM_FILE_CAPTION, AUTO_DEL, PICS, PROTECT_CONTENT
+from utils import get_size, is_requested_one, is_requested_two, is_requested_three, temp, check_loop_sub, check_loop_sub1, check_loop_sub2, check_loop_sub3, get_stream_buttons, get_stream_buttons_async
+from sql.db import delete_all_files_sql, delete_file_sql, get_search_results
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -104,7 +104,7 @@ async def start(client, message):
         buttons = [[
             InlineKeyboardButton('➜ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ➜', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
         ],[
-            InlineKeyboardButton("⭐ Cᴏɴᴛᴀᴄᴛ Aᴅᴍɪɴ Fᴏʀ Cᴏᴍᴘʟᴀɪɴᴛ ⭐", url=f'https://cybertg.vercel.app')
+            InlineKeyboardButton("⭐ Cᴏɴᴛᴀᴄᴛ Aᴅᴍɪɴ Fᴏʀ Cᴏᴍᴘʟᴀɪɴᴛ ⭐", url='https://cybertg.vercel.app')
         ],[
             InlineKeyboardButton('✜ ʜᴇʟᴘ', callback_data='help'),
             InlineKeyboardButton('✜ ᴀʙᴏᴜᴛ', callback_data='about')
@@ -144,7 +144,7 @@ async def start(client, message):
         buttons = [[
             InlineKeyboardButton('➜ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ➜', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
         ],[
-            InlineKeyboardButton("⭐ Cᴏɴᴛᴀᴄᴛ Aᴅᴍɪɴ Fᴏʀ Cᴏᴍᴘʟᴀɪɴᴛ ⭐", url=f'https://cybertg.vercel.app')
+            InlineKeyboardButton("⭐ Cᴏɴᴛᴀᴄᴛ Aᴅᴍɪɴ Fᴏʀ Cᴏᴍᴘʟᴀɪɴᴛ ⭐", url='https://cybertg.vercel.app')
         ],[
             InlineKeyboardButton('✜ ʜᴇʟᴘ', callback_data='help'),
             InlineKeyboardButton('✜ ᴀʙᴏᴜᴛ', callback_data='about')
@@ -265,7 +265,7 @@ async def start(client, message):
         buttons = [[
             InlineKeyboardButton('➜ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ➜', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
         ],[
-            InlineKeyboardButton("⭐ Cᴏɴᴛᴀᴄᴛ Aᴅᴍɪɴ Fᴏʀ Cᴏᴍᴘʟᴀɪɴᴛ ⭐", url=f'https://t.me/CyberTGx')
+            InlineKeyboardButton("⭐ Cᴏɴᴛᴀᴄᴛ Aᴅᴍɪɴ Fᴏʀ Cᴏᴍᴘʟᴀɪɴᴛ ⭐", url='https://t.me/CyberTGx')
         ],[
             InlineKeyboardButton('✜ ʜᴇʟᴘ', callback_data='help'),
             InlineKeyboardButton('✜ ᴀʙᴏᴜᴛ', callback_data='about')

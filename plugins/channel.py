@@ -9,12 +9,12 @@ from utils import temp
 import logging
 import re
 import pytz
-from pymongo import MongoClient
+from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
 
 media_filter = filters.document | filters.video | filters.audio
 
-client = MongoClient(DATABASE_URI)
+client = AsyncIOMotorClient(DATABASE_URI)
 db = client["autopost"]
 collection = db["latest"]
 collection_m = db["latestm"]
@@ -86,7 +86,7 @@ async def auto_post_new_file(bot, media):
 
 async def get_all_movies(col):
     movies = col.find().sort("_id", -1)
-    return [{"name": movie["name"], "year": movie.get("year", "N/A")} for movie in movies]
+    return [{"name": movie["name"], "year": movie.get("year", "N/A")} async for movie in movies]
 
 @Client.on_message(filters.command("latest"))
 async def handle_latest_command(client, message):
@@ -115,11 +115,11 @@ async def handle_latest_command(client, message):
         await message.reply_text("No movies found in the database.")
 
 async def maintain_movie_limit(col, MAX_MOVIES):
-    movie_count = col.count_documents({})
+    movie_count = await col.count_documents({})
     if movie_count > MAX_MOVIES:
-        oldest_movie = col.find_one(sort=[("_id", 1)])
+        oldest_movie = await col.find_one(sort=[("_id", 1)])
         if oldest_movie:
-            col.delete_one({"_id": oldest_movie["_id"]})
+            await col.delete_one({"_id": oldest_movie["_id"]})
 
 async def match_file(caption):
     try:
@@ -148,51 +148,51 @@ async def match_file(caption):
                     if language in ["malayalam", "mal"]:
                         target_collection = collection_m
                         document = {"name": movie_name, "year": year, "today": today_str}
-                        if not target_collection.find_one({"name": movie_name}):
-                            target_collection.insert_one(document)
+                        if not await target_collection.find_one({"name": movie_name}):
+                            await target_collection.insert_one(document)
                             await maintain_movie_limit(target_collection, 7)
                             inserted = True
                     if language in ["hindi", "hin"]:
                         target_collection = collection_h
                         document = {"name": movie_name, "year": year, "today": today_str}
-                        if not target_collection.find_one({"name": movie_name}):
-                            target_collection.insert_one(document)
+                        if not await target_collection.find_one({"name": movie_name}):
+                            await target_collection.insert_one(document)
                             await maintain_movie_limit(target_collection, 7)
                             inserted = True
                     if language in ["english", "eng"]:
                         target_collection = collection_e
                         document = {"name": movie_name, "year": year, "today": today_str}
-                        if not target_collection.find_one({"name": movie_name}):
-                            target_collection.insert_one(document)
+                        if not await target_collection.find_one({"name": movie_name}):
+                            await target_collection.insert_one(document)
                             await maintain_movie_limit(target_collection, 7)
                             inserted = True
                     if language in ["tamil", "tam"]:
                         target_collection = collection_ta
                         document = {"name": movie_name, "year": year, "today": today_str}
-                        if not target_collection.find_one({"name": movie_name}):
-                            target_collection.insert_one(document)
+                        if not await target_collection.find_one({"name": movie_name}):
+                            await target_collection.insert_one(document)
                             await maintain_movie_limit(target_collection, 7)
                             inserted = True
                     if language in ["telugu", "tel"]:
                         target_collection = collection_te
                         document = {"name": movie_name, "year": year, "today": today_str}
-                        if not target_collection.find_one({"name": movie_name}):
-                            target_collection.insert_one(document)
+                        if not await target_collection.find_one({"name": movie_name}):
+                            await target_collection.insert_one(document)
                             await maintain_movie_limit(target_collection, 7)
                             inserted = True
                     if language in ["kannada", "kan"]:
                         target_collection = collection_k
                         document = {"name": movie_name, "year": year, "today": today_str}
-                        if not target_collection.find_one({"name": movie_name}):
-                            target_collection.insert_one(document)
+                        if not await target_collection.find_one({"name": movie_name}):
+                            await target_collection.insert_one(document)
                             await maintain_movie_limit(target_collection, 7)
                             inserted = True
                     
             if not inserted:
                 target_collection = collection
                 document = {"name": movie_name, "year": year, "today": today_str}
-                if not target_collection.find_one({"name": movie_name}):
-                    target_collection.insert_one(document)
+                if not await target_collection.find_one({"name": movie_name}):
+                    await target_collection.insert_one(document)
                     await maintain_movie_limit(target_collection, 7)
 
     except Exception as e:

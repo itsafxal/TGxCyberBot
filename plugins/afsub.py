@@ -6,7 +6,6 @@ import sys, os
 from info import ADMINS
 from pyrogram.errors import ChatAdminRequired, FloodWait
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ChatJoinRequest, Message
-from pyrogram.types import ChatJoinRequest
 from pyrogram.errors.exceptions.bad_request_400 import MessageTooLong, PeerIdInvalid
 from database.users_chats_db import db
 from utils import temp

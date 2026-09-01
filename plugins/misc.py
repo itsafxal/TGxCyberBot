@@ -106,7 +106,7 @@ async def who_is(client, message):
         online_status = last_online(from_user)
         message_out_str += f"🟢 <b>Status:</b> {online_status}\n"
     else:
-        message_out_str += f"🟢 <b>Status:</b> `Offline`\n"
+        message_out_str += "🟢 <b>Status:</b> `Offline`\n"
 
 
     if message.chat.type in (enums.ChatType.SUPERGROUP, enums.ChatType.CHANNEL):

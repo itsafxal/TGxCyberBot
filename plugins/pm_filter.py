@@ -680,7 +680,7 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             await query.answer(f"Flood control: Please wait {e.value} seconds.", show_alert=True)
         except Exception as e:
             logger.exception(e)
-            await query.answer(f"An error occurred while sending the file.", show_alert=True)
+            await query.answer("An error occurred while sending the file.", show_alert=True)
 
     elif data.startswith("killfilesdq#"):
         _, keyword = data.split("#")
@@ -738,7 +738,7 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
         ],[
             InlineKeyboardButton(
                 "⭐ Cᴏɴᴛᴀᴄᴛ Aᴅᴍɪɴ Fᴏʀ Cᴏᴍᴘʟᴀɪɴᴛ ⭐",
-                url=f'https://cybertg.vercel.app',
+                url='https://cybertg.vercel.app',
                 style=ButtonStyle.DEFAULT,
                 icon_custom_emoji_id=5215354932598350357
             )
@@ -793,7 +793,7 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
         buttons = [[
             InlineKeyboardButton(
                 '🌐 Rᴇᴘᴏ 🌐',
-                url=f"https://github.com/CyberTG",
+                url="https://github.com/CyberTG",
                 style=ButtonStyle.PRIMARY,
                 icon_custom_emoji_id=5215354932598350357
             )
