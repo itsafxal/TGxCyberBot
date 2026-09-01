@@ -27,6 +27,35 @@ SUPER_BATCH_SIZE = 100000  # Commit every 100,000 files to prevent single massiv
 # --- Database Clients ---
 SQLITE_DB = f"media_{BOT_TOKEN}.sqlite3"
 
+from collections import OrderedDict
+import time
+
+class LRUCache:
+    def __init__(self, max_size=1000, ttl=3600):
+        self.cache = OrderedDict()
+        self.max_size = max_size
+        self.ttl = ttl
+
+    def get(self, key):
+        if key in self.cache:
+            val, timestamp = self.cache[key]
+            if time.time() - timestamp < self.ttl:
+                self.cache.move_to_end(key)
+                return val
+            else:
+                del self.cache[key]
+        return None
+
+    def set(self, key, val):
+        if key in self.cache:
+            self.cache.move_to_end(key)
+        self.cache[key] = (val, time.time())
+        if len(self.cache) > self.max_size:
+            self.cache.popitem(last=False)
+
+IMDB_CACHE = LRUCache(max_size=1000, ttl=86400)
+SEARCH_RESULT_CACHE = LRUCache(max_size=2000, ttl=300)
+
 client2 = AsyncIOMotorClient(DATABASE_URI2)
 db2 = client2[DATABASE_NAME]
 
@@ -182,30 +211,23 @@ async def migrate_to_sql():
                     total_saved_current_collection += len(batch)
                     batch = []
                     
-                    # --- Intermittent Commit Logic for huge collections ---
                     if total_saved_current_collection % SUPER_BATCH_SIZE == 0:
-                        await sql_db.commit() # Commit the current transaction
-                        await sql_db.execute("BEGIN;") # Start a new transaction
-                        logging.info(f"    ...SUPER-BATCH inserted and committed: {total_saved_current_collection} / {doc_count} files")
-                    # --- Regular Progress Update ---
-                    elif total_saved_current_collection % PROGRESS_STEP == 0:
-                        logging.info(f"    ...batch inserted: {total_saved_current_collection} / {doc_count} files")
-            
-            # Insert the final, smaller batch if it exists
+                        await sql_db.commit()
+                        await sql_db.execute("BEGIN TRANSACTION;")
+                        logging.info(f"  Super-batch committed ({total_saved_current_collection} files saved).")
+
             if batch:
                 await insert_batch_no_commit(sql_db, batch)
                 total_saved_current_collection += len(batch)
-            
-            # --- Commit the final transaction for the collection ---
+
             await sql_db.commit()
             logging.info("  Final transaction committed successfully.")
-
             logging.info(f"✅ Migration completed for '{current_collection_name}': {total_saved_current_collection} files saved.")
             total_files_saved_across_all_sources += total_saved_current_collection
 
         except Exception as e:
-            await sql_db.rollback() # Rollback on error to maintain data integrity
-            logging.error(f"  ❌ An error occurred during migration: {e}. Transaction has been rolled back.", exc_info=True)
+            await sql_db.rollback()
+            logging.error(f"  ❌ An error occurred during migration: {e}. Transaction rolled back.", exc_info=True)
 
     logging.info(f"\n✨ Overall Migration Summary: {total_files_saved_across_all_sources} files saved across all specified sources.")
 
@@ -213,23 +235,28 @@ async def migrate_to_sql():
 # --- Regular Bot Operation Functions ---
 
 async def fetch_imdb_titles(search_query: str) -> List[str]:
-    """Fetches movie title candidates from IMDb suggestion API with OMDb fallback."""
+    """Fetches movie title candidates from IMDb suggestion API with OMDb fallback and LRU caching."""
     if not search_query or len(search_query.strip()) < 2:
         return []
     clean_q = re.sub(r'[^a-zA-Z0-9]+', '', search_query.strip().lower())
     if not clean_q:
         return []
 
+    cached = IMDB_CACHE.get(clean_q)
+    if cached is not None:
+        return cached
+
     url_imdb = f"https://v3.sg.media-imdb.com/suggestion/x/{clean_q}.json"
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url_imdb, headers=headers, timeout=aiohttp.ClientTimeout(total=3)) as resp:
+            async with session.get(url_imdb, headers=headers, timeout=aiohttp.ClientTimeout(total=2)) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     items = data.get("d", [])
                     titles = [item.get("l") for item in items if item.get("l")]
                     if titles:
+                        IMDB_CACHE.set(clean_q, titles)
                         return titles
     except Exception as e:
         logger.debug(f"IMDb v3 suggestion fetch exception for '{search_query}': {e}")
@@ -237,19 +264,22 @@ async def fetch_imdb_titles(search_query: str) -> List[str]:
     try:
         url_omdb = f"https://www.omdbapi.com/?s={clean_q}&apikey=32906d20"
         async with aiohttp.ClientSession() as session:
-            async with session.get(url_omdb, timeout=aiohttp.ClientTimeout(total=3)) as resp:
+            async with session.get(url_omdb, timeout=aiohttp.ClientTimeout(total=2)) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     if data.get("Response") == "True":
                         items = data.get("Search", [])
-                        return [item.get("Title") for item in items if item.get("Title")]
+                        titles = [item.get("Title") for item in items if item.get("Title")]
+                        IMDB_CACHE.set(clean_q, titles)
+                        return titles
     except Exception as e:
         logger.debug(f"OMDb fallback exception for '{search_query}': {e}")
 
+    IMDB_CACHE.set(clean_q, [])
     return []
 
 def compute_accuracy_score(query: str, title: str) -> float:
-    """Computes similarity / accuracy score between search query and title (0.0 to 1.0)."""
+    """Computes similarity / accuracy score between search query and title with fast-paths."""
     q_raw = query.strip().lower()
     t_raw = title.strip().lower()
     if not q_raw or not t_raw:
@@ -261,14 +291,29 @@ def compute_accuracy_score(query: str, title: str) -> float:
     if q_norm == t_norm:
         return 1.0
 
+    q_words = [w for w in q_norm.split() if len(w) >= 2]
+    t_words = [w for w in t_norm.split() if len(w) >= 2]
+    q_set, t_set = set(q_words), set(t_words)
+
+    if q_set and q_set == t_set:
+        return 1.0
+    if q_set and q_set.issubset(t_set):
+        return 0.95
+
     q_compact = re.sub(r'[^a-z0-9]+', '', q_raw)
     t_compact = re.sub(r'[^a-z0-9]+', '', t_raw)
+    if q_compact and q_compact == t_compact:
+        return 1.0
+    if q_compact and len(q_compact) >= 4 and q_compact in t_compact:
+        return 0.90
+
+    len_diff = abs(len(q_norm) - len(t_norm))
+    max_len = max(len(q_norm), len(t_norm))
+    if max_len > 0 and len_diff / float(max_len) > 0.6 and not (q_set & t_set):
+        return 0.20
 
     seq_ratio = difflib.SequenceMatcher(None, q_norm, t_norm).ratio()
     compact_ratio = difflib.SequenceMatcher(None, q_compact, t_compact).ratio()
-
-    q_words = [w for w in re.findall(r'\w+', q_norm) if len(w) >= 2]
-    t_words = [w for w in re.findall(r'\w+', t_norm) if len(w) >= 2]
 
     if not q_words or not t_words:
         return max(seq_ratio, compact_ratio)
@@ -277,6 +322,9 @@ def compute_accuracy_score(query: str, title: str) -> float:
     for qw in q_words:
         best_w_score = 0.0
         for tw in t_words:
+            if qw == tw:
+                best_w_score = 1.0
+                break
             w_ratio = difflib.SequenceMatcher(None, qw, tw).ratio()
             if w_ratio > best_w_score:
                 best_w_score = w_ratio
@@ -284,27 +332,33 @@ def compute_accuracy_score(query: str, title: str) -> float:
 
     avg_word_score = sum(word_scores) / len(word_scores) if word_scores else 0.0
 
-    q_set, t_set = set(q_words), set(t_words)
     intersection = q_set & t_set
     union = q_set | t_set
     jaccard_ratio = len(intersection) / float(len(union)) if union else 0.0
 
     compact_boost = 0.15 if (q_compact in t_compact or t_compact in q_compact) else 0.0
-    query_contained = q_set.issubset(t_set) if q_set else False
-    contained_boost = 0.15 if query_contained else 0.0
+    contained_boost = 0.15 if (q_set and q_set.issubset(t_set)) else 0.0
 
     final_score = max(seq_ratio, compact_ratio, avg_word_score, jaccard_ratio) + max(compact_boost, contained_boost)
     return min(1.0, final_score)
 
 async def get_search_results(search_query: str, offset: int = 0) -> Tuple[List[dict], int]:
     """
-    Searches the SQLite database for files matching the query with 80% accuracy matching,
-    fuzzy candidate fallback, and IMDb spell-check correction integration.
+    Searches the SQLite database for files matching the query with fast caching,
+    query normalization, 80% accuracy matching, and fuzzy fallback.
     """
-    db = get_aiosqlite_connection()
-    search_terms = search_query.strip().split()
-    if not search_terms:
+    clean_search = re.sub(r'[\._\-\[\(\]\)]+', ' ', search_query.strip())
+    clean_search = re.sub(r'\s+', ' ', clean_search).strip()
+    if not clean_search:
         return [], 0
+
+    cache_key = f"{clean_search.lower()}_{offset}"
+    cached = SEARCH_RESULT_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    db = get_aiosqlite_connection()
+    search_terms = clean_search.split()
 
     # 1. Primary Search: Exact SQL LIKE query with AND
     where_clauses = []
@@ -329,15 +383,17 @@ async def get_search_results(search_query: str, offset: int = 0) -> Tuple[List[d
     if rows:
         scored_files = []
         for row in rows:
-            accuracy = compute_accuracy_score(search_query, clean_file_name_for_title(row[1]))
+            accuracy = compute_accuracy_score(clean_search, clean_file_name_for_title(row[1]))
             scored_files.append({"file_id": row[0], "file_name": row[1], "size": row[2], "accuracy": accuracy})
         scored_files.sort(key=lambda x: x["accuracy"], reverse=True)
         files = [{"file_id": f["file_id"], "file_name": f["file_name"], "size": f["size"]} for f in scored_files]
-        return files, offset + len(files)
+        res = (files, offset + len(files))
+        SEARCH_RESULT_CACHE.set(cache_key, res)
+        return res
 
-    # 2. Secondary Search: Fuzzy OR Candidate Search with 80% Accuracy Threshold
-    if offset == 0 and len(search_query.strip()) >= 3:
-        raw_words = [w for w in re.findall(r'\w+', search_query.lower()) if len(w) >= 2]
+    # 2. Secondary Search: Fuzzy OR Candidate Search
+    if offset == 0 and len(clean_search) >= 3:
+        raw_words = [w for w in re.findall(r'\w+', clean_search.lower()) if len(w) >= 2]
         if raw_words:
             or_clauses = []
             or_params = []
@@ -351,29 +407,31 @@ async def get_search_results(search_query: str, offset: int = 0) -> Tuple[List[d
                 FROM media
                 WHERE {or_stmt}
                 ORDER BY date_saved DESC
-                LIMIT 500
+                LIMIT 200
             """
             async with db.execute(fuzzy_query, tuple(or_params)) as cursor:
                 fuzzy_rows = await cursor.fetchall()
 
             scored_fuzzy = []
             for row in fuzzy_rows:
-                acc = compute_accuracy_score(search_query, clean_file_name_for_title(row[1]))
-                if acc >= 0.80:  # 80% Accuracy Filter
+                acc = compute_accuracy_score(clean_search, clean_file_name_for_title(row[1]))
+                if acc >= 0.80:
                     scored_fuzzy.append((acc, {"file_id": row[0], "file_name": row[1], "size": row[2]}))
 
             if scored_fuzzy:
                 scored_fuzzy.sort(key=lambda x: x[0], reverse=True)
                 fuzzy_files = [item[1] for item in scored_fuzzy[:MAX_FILES]]
-                return fuzzy_files, len(fuzzy_files)
+                res = (fuzzy_files, len(fuzzy_files))
+                SEARCH_RESULT_CACHE.set(cache_key, res)
+                return res
 
     # 3. Tertiary Search: IMDb Correction Lookup Fallback
-    if offset == 0 and len(search_query.strip()) >= 3:
+    if offset == 0 and len(clean_search) >= 3:
         try:
-            imdb_suggestions = await fetch_imdb_titles(search_query)
+            imdb_suggestions = await fetch_imdb_titles(clean_search)
             for title in imdb_suggestions:
-                acc = compute_accuracy_score(search_query, title)
-                if acc >= 0.75:  # High IMDb match confidence
+                acc = compute_accuracy_score(clean_search, title)
+                if acc >= 0.75:
                     corrected_terms = title.strip().split()
                     c_where = []
                     c_params = []
@@ -388,10 +446,13 @@ async def get_search_results(search_query: str, offset: int = 0) -> Tuple[List[d
                         c_rows = await cursor.fetchall()
                     if c_rows:
                         corrected_files = [{"file_id": r[0], "file_name": r[1], "size": r[2]} for r in c_rows]
-                        return corrected_files, len(corrected_files)
+                        res = (corrected_files, len(corrected_files))
+                        SEARCH_RESULT_CACHE.set(cache_key, res)
+                        return res
         except Exception as e:
             logger.debug(f"IMDb search fallback exception: {e}")
 
+    SEARCH_RESULT_CACHE.set(cache_key, ([], 0))
     return [], 0
 
 

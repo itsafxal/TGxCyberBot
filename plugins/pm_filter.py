@@ -152,53 +152,7 @@ async def next_page_cb(bot, query):
     if not files:
         return await query.answer("🚫Nᴏ ᴍᴏʀᴇ ʀᴇsᴜʟᴛs ғᴏᴜɴᴅ 🚫", show_alert=True)
 
-    btn = [
-        [
-            InlineKeyboardButton(
-                text=f" {file['size']} 🌷 {file['file_name']}",
-                callback_data=f"file#{file['file_id']}",
-                style=ButtonStyle.DEFAULT,
-                icon_custom_emoji_id=5397915559037785261
-            ),
-        ]
-        for file in files
-    ]
-
-    btn.insert(0, [
-        InlineKeyboardButton(
-            text="Lᴀɴɢᴜᴀɢᴇs",
-            callback_data=f"languages#{search_key}",
-            style=ButtonStyle.PRIMARY,
-            icon_custom_emoji_id=5888584382553265934
-        ),
-        InlineKeyboardButton(
-            text="Qᴜᴀʟɪᴛʏ",
-            callback_data=f"qualities#{search_key}",
-            style=ButtonStyle.PRIMARY,
-            icon_custom_emoji_id=5802910664150226061
-        )
-    ])
-
-    nav_buttons = []
-    if offset > 0:
-        prev_offset = max(0, offset - MAX_FILES) 
-        nav_buttons.append(InlineKeyboardButton(
-            "𝗕𝗮𝗰𝗸",
-            callback_data=f"next|{search_key}|{prev_offset}",
-            style=ButtonStyle.SUCCESS,
-            icon_custom_emoji_id=5210912043019822307
-        ))
-        
-    if next_offset:
-        nav_buttons.append(InlineKeyboardButton(
-            "𝗡𝗲𝘅𝘁",
-            callback_data=f"next|{search_key}|{next_offset}",
-            style=ButtonStyle.SUCCESS,
-            icon_custom_emoji_id=5210912043019822307
-        ))
-
-    if nav_buttons:
-        btn.append(nav_buttons)
+    btn = generate_main_buttons(files, offset, search_key, next_offset=next_offset)
 
     try:
         current_page = (offset // MAX_FILES) + 1
@@ -211,8 +165,8 @@ async def next_page_cb(bot, query):
     await query.answer()
 
 
-def generate_main_buttons(files, offset, search_key):
-    """Generates the main list of file buttons with navigation and filters."""
+def generate_main_buttons(files, offset, search_key, next_offset=0):
+    """Generates the main list of file buttons with smooth single-row navigation and filters."""
     btn = [
         [
             InlineKeyboardButton(
@@ -242,15 +196,26 @@ def generate_main_buttons(files, offset, search_key):
     ])
     
     # Add pagination buttons
-    if offset:
-        btn.append([
-            InlineKeyboardButton(
-                "𝗡𝗲𝘅𝘁",
-                callback_data=f"next|{search_key}|{offset}",
-                style=ButtonStyle.SUCCESS,
-                icon_custom_emoji_id=5210912043019822307
-            )
-        ])
+    nav_buttons = []
+    if offset > 0:
+        prev_offset = max(0, offset - MAX_FILES)
+        nav_buttons.append(InlineKeyboardButton(
+            "◀️ 𝗕𝗮𝗰𝗸",
+            callback_data=f"next|{search_key}|{prev_offset}",
+            style=ButtonStyle.SUCCESS,
+            icon_custom_emoji_id=5210912043019822307
+        ))
+        
+    if next_offset:
+        nav_buttons.append(InlineKeyboardButton(
+            "𝗡𝗲𝘅𝘁 ▶️",
+            callback_data=f"next|{search_key}|{next_offset}",
+            style=ButtonStyle.SUCCESS,
+            icon_custom_emoji_id=5210912043019822307
+        ))
+
+    if nav_buttons:
+        btn.append(nav_buttons)
     else:
         btn.append([InlineKeyboardButton(
             text="↭ ɴᴏ ᴍᴏʀᴇ ᴘᴀɢᴇꜱ ᴀᴠᴀɪʟᴀʙʟᴇ ↭",
@@ -934,48 +899,12 @@ async def auto_filter(client, message):
         return
 
     search_key = f"{message.from_user.id}_{message.id}"
-
-    btn = [
-        [
-            InlineKeyboardButton(
-                text=f" {file['size']} 🌷 {file['file_name']}",
-                callback_data=f"file#{file['file_id']}",
-                style=ButtonStyle.DEFAULT,
-                icon_custom_emoji_id=5397915559037785261
-            ),
-        ]
-        for file in files
-    ]
-
-    btn.insert(0, [
-        InlineKeyboardButton(
-            text="Lᴀɴɢᴜᴀɢᴇs",
-            callback_data=f"languages#{search_key}",
-            style=ButtonStyle.PRIMARY,
-            icon_custom_emoji_id=5888584382553265934
-        ),
-        InlineKeyboardButton(
-            text="Qᴜᴀʟɪᴛʏ",
-            callback_data=f"qualities#{search_key}",
-            style=ButtonStyle.PRIMARY,
-            icon_custom_emoji_id=5802910664150226061
-        )
-    ])
-
-    if offset:
-        btn.append([
-            InlineKeyboardButton(
-                text="𝗡𝗲𝘅𝘁",
-                callback_data=f"next|{search_key}|{offset}",
-                style=ButtonStyle.SUCCESS,
-                icon_custom_emoji_id=5210912043019822307
-            )
-        ])
+    btn = generate_main_buttons(files, offset=0, search_key=search_key, next_offset=offset)
     
     await message.reply_text(
         text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
         reply_markup=InlineKeyboardMarkup(btn),
-        
+        parse_mode=enums.ParseMode.HTML
     )
 
     SEARCH_CACHE.set(search_key, search)
@@ -995,49 +924,12 @@ async def pm_auto_filter(client, message):
         return
 
     search_key = f"{message.from_user.id}_{message.id}"
-
-    btn = [
-        [
-            InlineKeyboardButton(
-                text=f" {file['size']} 🌷 {file['file_name']}",
-                callback_data=f"file#{file['file_id']}",
-                style=ButtonStyle.DEFAULT,
-                icon_custom_emoji_id=5397915559037785261
-            )
-        ]
-        for file in files
-    ]
-
-    btn.insert(0, [
-        InlineKeyboardButton(
-            text="Lᴀɴɢᴜᴀɢᴇs",
-            callback_data=f"languages#{search_key}",
-            style=ButtonStyle.PRIMARY,
-            icon_custom_emoji_id=5888584382553265934
-        ),
-        InlineKeyboardButton(
-            text="Qᴜᴀʟɪᴛʏ",
-            callback_data=f"qualities#{search_key}",
-            style=ButtonStyle.PRIMARY,
-            icon_custom_emoji_id=5802910664150226061
-        )
-    ])
-
-    if offset:
-        btn.append([
-            InlineKeyboardButton(
-                text="𝗡𝗲𝘅𝘁",
-                callback_data=f"next|{search_key}|{offset}",
-                style=ButtonStyle.SUCCESS,
-                icon_custom_emoji_id=5210912043019822307
-            )
-        ])
+    btn = generate_main_buttons(files, offset=0, search_key=search_key, next_offset=offset)
  
     await message.reply_text(
         text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
         parse_mode=enums.ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup(btn),
-        
     )
 
     SEARCH_CACHE.set(search_key, search)
