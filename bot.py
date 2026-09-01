@@ -3,13 +3,22 @@ import sys
 import logging
 import logging.config
 import asyncio
-import psutil
 import time
 import traceback
-import uvloop
 from pathlib import Path
 import importlib
 import pkgutil
+
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
+try:
+    import uvloop
+    uvloop.install()
+except ImportError:
+    pass
 
 from pyrogram import Client, __version__ as pyrogram_version, utils as pyroutils
 from pyrogram.raw.all import layer as pyrogram_layer
@@ -17,8 +26,6 @@ from database.users_chats_db import db
 from info import SESSION, API_ID, API_HASH, BOT_TOKEN, LOG_STR, REQ_CHANNEL1, REQ_CHANNEL2, LOG_CHANNEL, OWNER_ID
 from utils import temp, load_datas, delete_messages_loop
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
-uvloop.install()
 
 # Fix for minimum chat/channel IDs
 pyroutils.MIN_CHAT_ID = -999999999999
@@ -45,6 +52,12 @@ except Exception:
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
+
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 # Ensure console handler with our formatter
 _has_stdout_handler = any(
@@ -197,15 +210,16 @@ class Bot(Client):
             asyncio.create_task(self.safe_loop(delete_messages_loop(self)), name="delete_messages_loop_task")
             asyncio.create_task(self.resource_monitor(), name="resource_monitor")
 
-            # Database migration check
+            # Database initialization and migration check
             try:
-                from sql.db import migrate_to_sql
-                await migrate_to_sql()
-                logger.info("Database migration check completed.")
+                from sql.db import init_aiosqlite_connection, migrate_all_databases, SQLITE_DB
+                await init_aiosqlite_connection(SQLITE_DB)
+                await migrate_all_databases()
+                logger.info("Database initialization and migration completed.")
             except ImportError:
                 logger.warning("SQL database module not found, skipping migration.")
             except Exception as e:
-                logger.warning(f"Database migration error: {e}")
+                logger.warning(f"Database initialization error: {e}")
 
             # Notify owner
             if OWNER_ID:

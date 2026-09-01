@@ -1,5 +1,5 @@
 git+https://github.com/KurimuzonAkuma/kurigram
-TgCrypto
+TgCrypto; sys_platform != 'win32'
 aiohttp
 aiosqlite
 pymongo[srv]==4.9.2
@@ -14,5 +14,5 @@ psutil
 python-dotenv
 pytz
 aiofiles
-uvloop==0.21.0
+uvloop==0.21.0; sys_platform != 'win32'
 httpx

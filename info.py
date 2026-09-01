@@ -1,6 +1,9 @@
 import re
 from os import environ
+from dotenv import load_dotenv
 from Script import script
+
+load_dotenv()
 
 id_pattern = re.compile(r'^.\d+$')
 
@@ -14,9 +17,9 @@ def is_enabled(value, default):
 
 # Bot information
 SESSION = environ.get('SESSION', 'Media_searcher')
-API_ID = int(environ.get('API_ID'))
-API_HASH = environ.get('API_HASH')
-BOT_TOKEN = environ.get('BOT_TOKEN')
+API_ID = int(api_id) if (api_id := environ.get('API_ID')) and api_id.isdigit() else 0
+API_HASH = environ.get('API_HASH', '')
+BOT_TOKEN = environ.get('BOT_TOKEN', '')
 
 # Bot settings
 AUTO_DEL = int(environ.get('AUTO_DEL', 900))
