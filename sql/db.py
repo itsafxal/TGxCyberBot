@@ -191,10 +191,6 @@ async def migrate_to_sql():
             logging.critical(f"  CRITICAL ERROR connecting to DB '{current_db.name}': {e}", exc_info=True)
             continue
 
-        # --- Begin a single transaction for the current batch ---
-        await sql_db.execute("BEGIN;")
-        logging.info("  Transaction started.")
-
         try:
             cursor = collection.find({})
             batch = []
@@ -220,7 +216,6 @@ async def migrate_to_sql():
                     
                     if total_saved_current_collection % SUPER_BATCH_SIZE == 0:
                         await sql_db.commit()
-                        await sql_db.execute("BEGIN TRANSACTION;")
                         logging.info(f"  Super-batch committed ({total_saved_current_collection} files saved).")
 
             if batch:
