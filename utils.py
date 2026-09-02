@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Union, List, Tuple
 from pyrogram import Client, enums
 from pyrogram.errors import UserNotParticipant
-from pyrogram.types import Message, InlineKeyboardButton, MessageEntity
+from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity
 from database.users_chats_db import db
 from info import ADMINS, AUTH_CHANNEL, MAX_LIST_ELM
 from bs4 import BeautifulSoup  # Although imported, not used in the provided code
