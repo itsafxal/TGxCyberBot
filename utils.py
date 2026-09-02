@@ -200,16 +200,6 @@ async def build_dynamic_fsub_keyboard(client, user_id: int, file_id: str = None)
                 InlineKeyboardButton("♦️ RᴇǫᴜESᴛ Tᴏ Jᴏɪɴ Cʜᴀɴɴᴇʟ 3 ♦️", url=req_link3)
             ])
 
-    # 4. Add "Try Again" / "Check Join" callback button if any channels remain unjoined
-    if unjoined_channels:
-        if file_id:
-            pre = 'checksubp' if str(file_id).startswith('filep_') else 'checksub'
-            clean_fid = str(file_id).split('filep_')[-1].split('file_')[-1]
-            buttons.append([InlineKeyboardButton("🔄 Cʜᴇᴄᴋ Jᴏɪɴ / Tʀʏ Aɢᴀɪɴ 🔄", callback_data=f"{pre}#{clean_fid}")])
-        else:
-            username = getattr(temp, 'U_NAME', '')
-            buttons.append([InlineKeyboardButton("🔄 Cʜᴇᴄᴋ Jᴏɪɴ / Tʀʏ Aɢᴀɪɴ 🔄", url=f"https://t.me/{username}?start=subscribe")])
-
     return InlineKeyboardMarkup(buttons), unjoined_channels
 
 async def check_loop_sub_dynamic(client, message, file_id: str = None, prompt_msg = None):
