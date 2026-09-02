@@ -32,9 +32,9 @@ async def claim_announcement_lock(movie_key: str, title: str) -> bool:
         if movie_key in _ANNOUNCED_KEYS_SET:
             return False
 
-        from sql.db import get_aiosqlite_connection
+        from sql.db import ensure_aiosqlite_connection
         try:
-            db = get_aiosqlite_connection()
+            db = await ensure_aiosqlite_connection()
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS announcements (
                     movie_key TEXT PRIMARY KEY,

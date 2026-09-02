@@ -221,14 +221,14 @@ class Bot(Client):
 
             # Database initialization and migration check
             try:
-                from sql.db import init_aiosqlite_connection, migrate_all_databases, SQLITE_DB
+                from sql.db import init_aiosqlite_connection, migrate_to_sql, SQLITE_DB
                 await init_aiosqlite_connection(SQLITE_DB)
-                await migrate_all_databases()
+                await migrate_to_sql()
                 logger.info("Database initialization and migration completed.")
-            except ImportError:
-                logger.warning("SQL database module not found, skipping migration.")
+            except ImportError as ie:
+                logger.error(f"SQL database import error: {ie}", exc_info=True)
             except Exception as e:
-                logger.warning(f"Database initialization error: {e}")
+                logger.error(f"Database initialization error: {e}", exc_info=True)
 
             # Notify owner
             if OWNER_ID:

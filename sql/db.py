@@ -71,15 +71,23 @@ COLLECTIONS_TO_MIGRATE = [
 _global_aiosqlite_connection: Optional[aiosqlite.Connection] = None
 _connection_lock = asyncio.Lock()
 
-async def init_aiosqlite_connection(db_path: str):
+async def init_aiosqlite_connection(db_path: Optional[str] = None):
     """Initializes a single, reusable aiosqlite connection."""
     global _global_aiosqlite_connection
+    if db_path is None:
+        db_path = SQLITE_DB
     async with _connection_lock:
         if _global_aiosqlite_connection is None:
             _global_aiosqlite_connection = await aiosqlite.connect(db_path)
             await _global_aiosqlite_connection.execute("PRAGMA foreign_keys = ON;")
             logging.info(f"aiosqlite connection opened to {db_path}")
         return _global_aiosqlite_connection
+
+async def ensure_aiosqlite_connection() -> aiosqlite.Connection:
+    """Ensures aiosqlite connection is initialized, auto-initializing if necessary."""
+    if _global_aiosqlite_connection is None:
+        await init_aiosqlite_connection()
+    return _global_aiosqlite_connection
 
 async def close_aiosqlite_connection():
     """Closes the global aiosqlite connection."""
@@ -99,7 +107,7 @@ def get_aiosqlite_connection() -> aiosqlite.Connection:
 # --- Helper Functions ---
 async def check_table_exists(table_name: str) -> bool:
     """Checks if a table exists in the SQLite database."""
-    db = get_aiosqlite_connection()
+    db = await ensure_aiosqlite_connection()
     async with db.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
     ) as cursor:
@@ -107,7 +115,7 @@ async def check_table_exists(table_name: str) -> bool:
 
 async def check_data_exists(table_name: str) -> bool:
     """Checks if a table contains any data."""
-    db = get_aiosqlite_connection()
+    db = await ensure_aiosqlite_connection()
     async with db.execute(f"SELECT 1 FROM {table_name} LIMIT 1") as cursor:
         return await cursor.fetchone() is not None
 
@@ -138,8 +146,7 @@ async def migrate_to_sql():
     and optimal PRAGMA settings.
     """
     logging.info("🚀 Starting multi-database migration with high-speed optimizations...")
-    await init_aiosqlite_connection(SQLITE_DB)
-    sql_db = get_aiosqlite_connection()
+    sql_db = await ensure_aiosqlite_connection()
 
     # Create table if it doesn't exist
     await sql_db.execute("""
@@ -357,7 +364,7 @@ async def get_search_results(search_query: str, offset: int = 0) -> Tuple[List[d
     if cached is not None:
         return cached
 
-    db = get_aiosqlite_connection()
+    db = await ensure_aiosqlite_connection()
     search_terms = clean_search.split()
 
     # 1. Primary Search: Exact SQL LIKE query with AND
@@ -481,7 +488,7 @@ async def save_file_sql(media):
         processed_name = media.file_name
     file_name = re.sub(r"(_|\+\s|\-|\.|\+|\[MM\]\s|\[MM\]_|\@TvSeriesBay|\@Cinema\sCompany|\@Cinema_Company|\@CC_|\@CC|\@MM_New|\@MM_Linkz|\@MOVIEHUNT|\@CL|\@FBM|\@CKMSERIES|www_DVDWap_Com_|MLM|\@WMR|\[CF\]\s|\[CF\]|\@IndianMoviez|\@tamil_mm|\@infotainmentmedia|\@trolldcompany|\@Rarefilms|\@yamandanmovies|\[YM\]|\@Mallu_Movies|\@YTSLT|\@DailyMovieZhunt|\@I_M_D_B|\@CC_All|\@PM_Old|Dvdworld|\[KMH\]|\@FBM_HW|\@Film_Kottaka|\@CC_X265|\@CelluloidCineClub|\@cinemaheist|\@telugu_moviez|\@CR_Rockers|\@CCineClub|KC_|\[KC\]|\[AML\])", " ", processed_name)
     try:
-        db = get_aiosqlite_connection()
+        db = await ensure_aiosqlite_connection()
         await db.execute(
             """
             INSERT INTO media (file_id, file_ref, file_name, file_size, size, file_type, mime_type, caption, date_saved)
@@ -554,7 +561,7 @@ async def save_files_sql_batch(media_list: list) -> tuple:
     duplicate_count = 0
     error_count = 0
     try:
-        db = get_aiosqlite_connection()
+        db = await ensure_aiosqlite_connection()
         cursor = await db.executemany(
             """
             INSERT OR IGNORE INTO media (file_id, file_ref, file_name, file_size, size, file_type, mime_type, caption, date_saved)
@@ -576,7 +583,7 @@ async def save_files_sql_batch(media_list: list) -> tuple:
 async def delete_file_sql(file_id: str) -> bool:
     """Deletes a single file record from the SQLite database."""
     try:
-        db = get_aiosqlite_connection()
+        db = await ensure_aiosqlite_connection()
         await db.execute("DELETE FROM media WHERE file_id = ?", (file_id,))
         await db.commit()
         return True
@@ -588,7 +595,7 @@ async def delete_file_sql(file_id: str) -> bool:
 async def delete_all_files_sql() -> Tuple[bool, int]:
     """Deletes all file records from the SQLite database."""
     try:
-        db = get_aiosqlite_connection()
+        db = await ensure_aiosqlite_connection()
         cursor = await db.execute("SELECT COUNT(*) FROM media")
         count_row = await cursor.fetchone()
         total_files = count_row[0] if count_row else 0
@@ -647,7 +654,7 @@ async def get_suggestions_sql(search_query: str, limit: int = 8, min_accuracy: f
 
     sql_rows = []
     try:
-        db = get_aiosqlite_connection()
+        db = await ensure_aiosqlite_connection()
         where_clauses = []
         params = []
         for word in raw_words:
@@ -667,7 +674,7 @@ async def get_suggestions_sql(search_query: str, limit: int = 8, min_accuracy: f
 
     if not sql_rows:
         try:
-            db = get_aiosqlite_connection()
+            db = await ensure_aiosqlite_connection()
             async with db.execute("SELECT DISTINCT file_name FROM media ORDER BY date_saved DESC LIMIT 200") as cursor:
                 sql_rows = await cursor.fetchall()
         except Exception:
