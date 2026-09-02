@@ -123,6 +123,10 @@ async def announce_new_movie(bot, media):
     Main background handler for automatic new movie announcements.
     Guarantees exactly-once distribution across POST_CHANNELS with resilient error handling.
     """
+    if not POST_CHANNELS:
+        logger.info("[ANNOUNCEMENT] POST_CHANNELS is disabled or not configured (value 0). Announcement skipped.")
+        return
+
     raw_name = getattr(media, 'caption', None) or getattr(media, 'file_name', '')
     if not raw_name:
         return
@@ -140,11 +144,7 @@ async def announce_new_movie(bot, media):
         logger.info(f"[ANNOUNCEMENT] Movie '{clean_title}' already announced. Skipping.")
         return
 
-    target_channels = POST_CHANNELS if POST_CHANNELS else ([LOG_CHANNEL] if LOG_CHANNEL else [])
-    if not target_channels:
-        logger.warning("[ANNOUNCEMENT] No POST_CHANNELS configured. Announcement skipped.")
-        return
-
+    target_channels = POST_CHANNELS
     logger.info(f"[ANNOUNCEMENT] Starting new movie announcement for '{clean_title}' across {len(target_channels)} channel(s).")
 
     metadata = await fetch_movie_metadata(clean_title, year)
@@ -181,6 +181,8 @@ async def announce_new_movie(bot, media):
     fallback_poster = "https://telegra.ph/file/69c84188c600122e23293.jpg"
 
     for channel_id in target_channels:
+        if not channel_id or str(channel_id).strip().lower() in ["0", "off", "disable", "false", "none", "null", "no", "n"]:
+            continue
         success = False
         max_retries = 3
         current_poster = poster_url

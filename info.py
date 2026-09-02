@@ -8,9 +8,12 @@ load_dotenv()
 id_pattern = re.compile(r'^.\d+$')
 
 def is_enabled(value, default):
-    if value.lower() in ["true", "yes", "1", "enable", "y"]:
+    if not value:
+        return default
+    val = str(value).strip().lower()
+    if val in ["true", "yes", "1", "enable", "y", "on"]:
         return True
-    elif value.lower() in ["false", "no", "0", "disable", "n"]:
+    elif val in ["false", "no", "0", "disable", "n", "off", "none", "null"]:
         return False
     else:
         return default
@@ -56,8 +59,13 @@ JOIN_REQS_DB = environ.get("JOIN_REQS_DB", DATABASE_URI)
 LOG_CHANNEL = int(log_channel) if (log_channel := environ.get('LOG_CHANNEL')) and id_pattern.search(log_channel) else None
 FILE_STORE_CHANNEL = int(file_store) if (file_store := environ.get('FILE_STORE_CHANNEL')) and id_pattern.search(file_store) else 0
 PUBLIC_FILE_STORE = int(pub_store) if (pub_store := environ.get('PUBLIC_FILE_STORE')) and id_pattern.search(pub_store) else 0
-post_channels = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get('POST_CHANNELS', '').split()]
-POST_CHANNELS = post_channels if post_channels else ([LOG_CHANNEL] if LOG_CHANNEL else [])
+DISABLE_TOKENS = {'0', 'off', 'disable', 'false', 'none', 'null', 'no', 'n'}
+post_channels_raw = environ.get('POST_CHANNELS', '').strip()
+POST_CHANNELS = [
+    int(ch) if id_pattern.search(ch) else ch
+    for ch in post_channels_raw.split()
+    if ch.strip().lower() not in DISABLE_TOKENS
+]
 SUPPORT_CHAT = environ.get('SUPPORT_CHAT')
 CUSTOM_FILE_CAPTION = environ.get("CUSTOM_FILE_CAPTION", script.CAPTION_TXT)
 MAX_LIST_ELM = environ.get("MAX_LIST_ELM", None)
@@ -66,3 +74,5 @@ PROTECT_CONTENT = is_enabled((environ.get('PROTECT_CONTENT', 'False')), False)
 
 LOG_STR = "Current Customized Configurations are:-\n"
 LOG_STR += (f"CUSTOM_FILE_CAPTION enabled with value {CUSTOM_FILE_CAPTION}, your files will be send along with this customized caption.\n" if CUSTOM_FILE_CAPTION else "No CUSTOM_FILE_CAPTION Found, Default captions of file will be used.\n")
+LOG_STR += (f"POST_CHANNELS enabled with {len(POST_CHANNELS)} target channel(s).\n" if POST_CHANNELS else "POST_CHANNELS disabled (value 0 or off).\n")
+
