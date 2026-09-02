@@ -21,6 +21,7 @@ except ImportError:
     pass
 
 from pyrogram import Client, __version__ as pyrogram_version, utils as pyroutils
+from pyrogram.handlers.handler import Handler
 from pyrogram.raw.all import layer as pyrogram_layer
 from database.users_chats_db import db
 from info import SESSION, API_ID, API_HASH, BOT_TOKEN, LOG_STR, REQ_CHANNEL1, REQ_CHANNEL2, LOG_CHANNEL, OWNER_ID
@@ -140,22 +141,30 @@ class Bot(Client):
 
     def _register_plugin_handlers(self):
         """Manually register handlers from all loaded plugins"""
+        total_handlers = 0
         for plugin in loaded_plugins:
             try:
-                # Check if the plugin has any decorators registered
-                if hasattr(plugin, '__pyrogram_handlers__'):
-                    for handler_data in plugin.__pyrogram_handlers__:
-                        # Register each handler
-                        self.add_handler(handler_data['handler'], handler_data['group'])
-                    logger.info(f"Registered handlers from plugin: {plugin.__name__}")
+                count = 0
+                for name in dir(plugin):
+                    obj = getattr(plugin, name)
+                    if hasattr(obj, "handlers") and isinstance(obj.handlers, list):
+                        for item in obj.handlers:
+                            if isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], Handler):
+                                handler, group = item
+                                self.add_handler(handler, group)
+                                count += 1
+                                total_handlers += 1
+                if count > 0:
+                    logger.info(f"Registered {count} handlers from plugin: {plugin.__name__}")
                 else:
-                    # Some plugins might register handlers differently
                     logger.debug(f"No handlers found in plugin: {plugin.__name__}")
             except Exception as e:
                 logger.error(f"Error registering handlers from plugin {plugin.__name__}: {e}")
+        logger.info(f"Total handlers registered across all plugins: {total_handlers}")
 
     async def start(self, **kwargs):
         print("\n[INFO] Bot Initializing...\n")
+        self._is_running = True
         
         try:
             # Load banned users and chats
@@ -289,15 +298,24 @@ class Bot(Client):
             logger.warning(f"Error disconnecting client: {e}")
         logger.info("Bot stopped cleanly.")
 
-    async def safe_loop(self, coro_func):
-        """Run a coroutine safely with error handling"""
+    async def safe_loop(self, target):
+        """Run a coroutine or callable safely with error handling"""
         while self._is_running:
             try:
-                await coro_func
+                if asyncio.iscoroutine(target):
+                    await target
+                    break
+                elif callable(target):
+                    res = target()
+                    if asyncio.iscoroutine(res):
+                        await res
+                else:
+                    break
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Loop error in {coro_func.__name__}: {e}", exc_info=True)
+                name = getattr(target, '__name__', getattr(type(target), '__name__', str(target)))
+                logger.error(f"Loop error in {name}: {e}", exc_info=True)
                 await asyncio.sleep(10)
 
     async def resource_monitor(self):
