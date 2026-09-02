@@ -574,7 +574,7 @@ async def spell_check_cb_handler(client: Client, query: CallbackQuery):
     except Exception as e:
         logger.exception(f"Error in spell_check_cb_handler: {e}")
 
-@Client.on_callback_query()
+@Client.on_callback_query(group=1)
 async def main_cb_handler(client: Client, query: CallbackQuery):
     data = query.data
     logger.debug(f"[main_cb_handler] user={query.from_user.id} data={data!r}")

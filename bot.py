@@ -145,8 +145,7 @@ class Bot(Client):
         for plugin in loaded_plugins:
             try:
                 count = 0
-                for name in dir(plugin):
-                    obj = getattr(plugin, name)
+                for obj in getattr(plugin, "__dict__", {}).values():
                     if hasattr(obj, "handlers") and isinstance(obj.handlers, list):
                         for item in obj.handlers:
                             if isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], Handler):
