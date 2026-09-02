@@ -124,7 +124,6 @@ async def announce_new_movie(bot, media):
     Guarantees exactly-once distribution across POST_CHANNELS with resilient error handling.
     """
     if not POST_CHANNELS:
-        logger.info("[ANNOUNCEMENT] POST_CHANNELS is disabled or not configured (value 0). Announcement skipped.")
         return
 
     raw_name = getattr(media, 'caption', None) or getattr(media, 'file_name', '')

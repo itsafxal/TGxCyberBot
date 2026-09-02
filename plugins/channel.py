@@ -130,7 +130,6 @@ async def match_file(caption):
 
         if match:
             movie_name = match.group("title").strip()
-            print(f"Extracted Movie Name: {movie_name}")
 
             year_match = re.search(YEAR_PATTERN, file_name)
             year = int(year_match.group(0)) if year_match else None
@@ -224,5 +223,5 @@ async def media(bot, message):
             from database.announcement import announce_new_movie
             asyncio.create_task(announce_new_movie(bot, media))
     else:
-        print("skipped duplicate file from saving to db 😌")
+        logging.debug("Skipped duplicate file from saving to db")
 
