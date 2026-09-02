@@ -148,6 +148,96 @@ async def check_loop_sub3(client, message):
         await asyncio.sleep(1)
     return False
 
+async def build_dynamic_fsub_keyboard(client, user_id: int, file_id: str = None):
+    """
+    Dynamically constructs Force Subscribe InlineKeyboardMarkup.
+    Hides buttons for channels the user has already joined.
+    - First checks Channel 1 and Channel 2.
+    - If Channel 1 and Channel 2 are BOTH joined, checks Channel 3.
+    Returns (InlineKeyboardMarkup, unjoined_channels_list).
+    """
+    buttons = []
+    unjoined_channels = []
+
+    class DummyUser:
+        def __init__(self, uid):
+            self.id = uid
+    class DummyMsg:
+        def __init__(self, uid):
+            self.from_user = DummyUser(uid)
+
+    dummy_msg = DummyMsg(user_id)
+
+    # 1. Check Channel 1
+    ch1_joined = True
+    if temp.REQ_CHANNEL1:
+        ch1_joined = await is_requested_one(client, dummy_msg)
+        if not ch1_joined:
+            unjoined_channels.append(temp.REQ_CHANNEL1)
+            req_link1 = getattr(client, 'req_link1', None) or getattr(temp, 'req_link1', '')
+            buttons.append([
+                InlineKeyboardButton("💐 Rᴇǫᴜᴇsᴛ Tᴏ Jᴏɪɴ Cʜᴀɴɴᴇʟ 1 💐", url=req_link1)
+            ])
+
+    # 2. Check Channel 2
+    ch2_joined = True
+    if temp.REQ_CHANNEL2:
+        ch2_joined = await is_requested_two(client, dummy_msg)
+        if not ch2_joined:
+            unjoined_channels.append(temp.REQ_CHANNEL2)
+            req_link2 = getattr(client, 'req_link2', None) or getattr(temp, 'req_link2', '')
+            buttons.append([
+                InlineKeyboardButton("⚡ RᴇǫᴜESᴛ Tᴏ Jᴏɪɴ Cʜᴀɴɴᴇʟ 2 ⚡", url=req_link2)
+            ])
+
+    # 3. Check Channel 3 if Ch1 and Ch2 are both joined
+    if ch1_joined and ch2_joined and temp.REQ_CHANNEL3:
+        ch3_joined = await is_requested_three(client, dummy_msg)
+        if not ch3_joined:
+            unjoined_channels.append(temp.REQ_CHANNEL3)
+            req_link3 = getattr(client, 'req_link3', None) or getattr(temp, 'req_link3', '')
+            buttons.append([
+                InlineKeyboardButton("♦️ RᴇǫᴜESᴛ Tᴏ Jᴏɪɴ Cʜᴀɴɴᴇʟ 3 ♦️", url=req_link3)
+            ])
+
+    # 4. Add "Try Again" / "Check Join" callback button if any channels remain unjoined
+    if unjoined_channels:
+        if file_id:
+            pre = 'checksubp' if str(file_id).startswith('filep_') else 'checksub'
+            clean_fid = str(file_id).split('filep_')[-1].split('file_')[-1]
+            buttons.append([InlineKeyboardButton("🔄 Cʜᴇᴄᴋ Jᴏɪɴ / Tʀʏ Aɢᴀɪɴ 🔄", callback_data=f"{pre}#{clean_fid}")])
+        else:
+            username = getattr(temp, 'U_NAME', '')
+            buttons.append([InlineKeyboardButton("🔄 Cʜᴇᴄᴋ Jᴏɪɴ / Tʀʏ Aɢᴀɪɴ 🔄", url=f"https://t.me/{username}?start=subscribe")])
+
+    return InlineKeyboardMarkup(buttons), unjoined_channels
+
+async def check_loop_sub_dynamic(client, message, file_id: str = None, prompt_msg = None):
+    """
+    Periodically checks user subscription status in background loop,
+    updating prompt_msg reply_markup dynamically as user joins channels.
+    """
+    user_id = message.from_user.id
+    count = 0
+    while count < 15:
+        reply_markup, unjoined = await build_dynamic_fsub_keyboard(client, user_id, file_id=file_id)
+        if not unjoined:
+            return True
+
+        if prompt_msg:
+            try:
+                await prompt_msg.edit_reply_markup(reply_markup=reply_markup)
+            except MessageNotModified:
+                pass
+            except Exception as e:
+                logger.debug(f"Dynamic loop edit_reply_markup error: {e}")
+
+        count += 1
+        await asyncio.sleep(1.5)
+
+    return False
+
+
 
 async def is_requested_one(self , message):
     user = await db.get_req_one(int(message.from_user.id))

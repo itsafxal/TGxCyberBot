@@ -20,7 +20,7 @@ from database.ia_filterdb import get_file_details, Media2, Media3, db as clientD
 from database.gfilters_mdb import find_gfilter, get_gfilters
 from info import ADMINS, CUSTOM_FILE_CAPTION, AUTO_DEL, MAX_FILES
 from sql.db import get_search_results, delete_file_sql, get_suggestions_sql
-from utils import get_size, temp, is_requested_one, is_requested_two, add_auto_delete_message, premium_emoji, get_stream_buttons, get_stream_buttons_async
+from utils import get_size, temp, is_requested_one, is_requested_two, add_auto_delete_message, premium_emoji, get_stream_buttons, get_stream_buttons_async, build_dynamic_fsub_keyboard
 
 # --- Configuration ---
 logger = logging.getLogger(__name__)
@@ -593,18 +593,25 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             logger.exception(e)
             await query.answer("An unexpected error occurred.", show_alert=True)
 
-    elif data.startswith("checksub#"):
-        ident, file_id = data.split("#")
-        
-        unjoined_channels = []
-        if temp.REQ_CHANNEL1 and not await is_requested_one(client, query):
-            unjoined_channels.append("first")
-        if temp.REQ_CHANNEL2 and not await is_requested_two(client, query):
-            unjoined_channels.append("second")
+    elif data.startswith("checksub#") or data.startswith("checksubp#"):
+        ident, file_id = data.split("#", 1)
+        user_id = query.from_user.id
 
-        if unjoined_channels:
-            channel_text = ' and '.join(unjoined_channels)
-            return await query.answer(f"🚨 Please join the {channel_text} channel(s) to get this movie, then try again.", show_alert=True)
+        full_file_arg = f"{'filep' if ident == 'checksubp' else 'file'}_{file_id}" if file_id else None
+        reply_markup, unjoined = await build_dynamic_fsub_keyboard(client, user_id, file_id=full_file_arg)
+
+        if unjoined:
+            try:
+                await query.edit_message_reply_markup(reply_markup=reply_markup)
+            except MessageNotModified:
+                pass
+            except Exception as e:
+                logger.debug(f"checksub edit_message_reply_markup error: {e}")
+
+            return await query.answer(
+                "🚨 You haven't joined all required channels yet! Joined channel buttons have been hidden. Please join the remaining channel(s) shown above and click Try Again.",
+                show_alert=True
+            )
 
         files = await get_file_details(file_id)
         if not files:

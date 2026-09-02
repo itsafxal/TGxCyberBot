@@ -14,7 +14,7 @@ from Script import script
 from database.ia_filterdb import Media2, Media3, get_file_details, unpack_new_file_id
 from database.users_chats_db import db
 from info import ADMINS, LOG_CHANNEL, CUSTOM_FILE_CAPTION, AUTO_DEL, PICS, PROTECT_CONTENT
-from utils import get_size, is_requested_one, is_requested_two, is_requested_three, temp, check_loop_sub, check_loop_sub1, check_loop_sub2, check_loop_sub3, get_stream_buttons, get_stream_buttons_async
+from utils import get_size, is_requested_one, is_requested_two, is_requested_three, temp, check_loop_sub, check_loop_sub1, check_loop_sub2, check_loop_sub3, get_stream_buttons, get_stream_buttons_async, build_dynamic_fsub_keyboard, check_loop_sub_dynamic
 from sql.db import delete_all_files_sql, delete_file_sql, get_search_results
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -159,107 +159,28 @@ async def start(client, message):
         return
 
     try:
-        if temp.REQ_CHANNEL3:
-            joined_ch1=True
-            joined_ch2=True
-            if temp.REQ_CHANNEL1:
-                joined_ch1 = await is_requested_one(client, message)
-            if temp.REQ_CHANNEL2:
-                joined_ch2 = await is_requested_two(client, message)
-            if joined_ch1 and joined_ch2:
-                if not await is_requested_three(client, message):
-                    btn = [[
-                        InlineKeyboardButton("♦️ Rᴇǫᴜᴇsᴛ Tᴏ Jᴏɪɴ Cʜᴀɴɴᴇʟ ♦️", url=client.req_link3)
-                    ]]
-                    if message.command[1] != "subscribe":
-                        try:
-                            kk, file_id = message.command[1].split("_", 1)
-                            pre = 'checksubp' if kk == 'filep' else 'checksub'
-                            btn.append([InlineKeyboardButton("〄 Tʀʏ Aɢᴀɪɴ 〄", callback_data=f"{pre}#{file_id}")])
-                        except (IndexError, ValueError):
-                            btn.append([InlineKeyboardButton("〄 Tʀʏ Aɢᴀɪɴ 〄", url=f"https://t.me/{temp.U_NAME}?start={message.command[1]}")])
+        file_arg = message.command[1] if len(message.command) > 1 and message.command[1] != "subscribe" else None
+        reply_markup, unjoined_channels = await build_dynamic_fsub_keyboard(client, message.from_user.id, file_id=file_arg)
 
-                    sh = await client.send_message(
-                        chat_id=message.from_user.id,
-                        text='**Pʟᴇᴀꜱᴇ Jᴏɪɴ Oᴜʀ Cʜᴀɴɴᴇʟs Tᴏ Gᴇᴛ Yᴏᴜʀ Rᴇǫᴜᴇꜱᴛᴇᴅ Mᴏᴠɪᴇ Fɪʟᴇ 🚀**',
-                        reply_markup=InlineKeyboardMarkup(btn),
-                        parse_mode=enums.ParseMode.MARKDOWN
-                    )
-
-                    check = await check_loop_sub3(client, message)
-                    if check:
-                        await sh.delete()
-                    else:
-                        return
-
-        should_run_check_loop_sub = False
-        should_run_check_loop_sub1 = False
-
-        if temp.REQ_CHANNEL1 and not await is_requested_one(client, message):
-            btn = [[
-                InlineKeyboardButton("💐 Rᴇǫᴜᴇsᴛ Tᴏ Jᴏɪɴ Cʜᴀɴɴᴇʟ 💐", url=client.req_link1)
-            ]]
-            should_run_check_loop_sub1 = True
-
-            try:
-                if temp.REQ_CHANNEL2 and not await is_requested_two(client, message):
-                    btn.append([
-                        InlineKeyboardButton("⚡ Rᴇǫᴜᴇsᴛ Tᴏ Jᴏɪɴ Cʜᴀɴɴᴇʟ ⚡", url=client.req_link2)
-                    ])
-                    should_run_check_loop_sub = True
-            except Exception as e:
-                print(e)
-
-            if message.command[1] != "subscribe":
-                try:
-                    kk, file_id = message.command[1].split("_", 1)
-                    pre = 'checksubp' if kk == 'filep' else 'checksub'
-                    btn.append([InlineKeyboardButton("〄 Tʀʏ Aɢᴀɪɴ 〄", callback_data=f"{pre}#{file_id}")])
-                except (IndexError, ValueError):
-                    btn.append([InlineKeyboardButton("〄 Tʀʏ Aɢᴀɪɴ 〄", url=f"https://t.me/{temp.U_NAME}?start={message.command[1]}")])
-
+        if unjoined_channels:
             sh = await client.send_message(
                 chat_id=message.from_user.id,
                 text='**Pʟᴇᴀꜱᴇ Jᴏɪɴ Oᴜʀ Cʜᴀɴɴᴇʟs Tᴏ Gᴇᴛ Yᴏᴜʀ Rᴇǫᴜᴇꜱᴛᴇᴅ Mᴏᴠɪᴇ Fɪʟᴇ 🚀**',
-                reply_markup=InlineKeyboardMarkup(btn),
+                reply_markup=reply_markup,
                 parse_mode=enums.ParseMode.MARKDOWN
             )
 
-            if should_run_check_loop_sub:
-                check = await check_loop_sub(client, message)
-            elif should_run_check_loop_sub1:
-                check = await check_loop_sub1(client, message)
-
+            check = await check_loop_sub_dynamic(client, message, file_id=file_arg, prompt_msg=sh)
             if check:
-                await sh.delete()
+                try:
+                    await sh.delete()
+                except Exception:
+                    pass
             else:
                 return
 
     except Exception as e:
-        return await message.reply(str(e))
-
-    if temp.REQ_CHANNEL2 and not await is_requested_two(client, message):
-        btn = [[
-            InlineKeyboardButton("🌹 Rᴇǫᴜᴇsᴛ Tᴏ Jᴏɪɴ Cʜᴀɴɴᴇʟ 🌹", url=client.req_link2)
-        ]]
-        if message.command[1] != "subscribe":
-            try:
-                kk, file_id = message.command[1].split("_", 1)
-                pre = 'checksubp' if kk == 'filep' else 'checksub'
-                btn.append([InlineKeyboardButton(" 🔄 Tʀʏ Aɢᴀɪɴ 🔄", callback_data=f"{pre}#{file_id}")])
-            except (IndexError, ValueError):
-                btn.append([InlineKeyboardButton(" 🔄 Tʀʏ Aɢᴀɪɴ 🔄", url=f"https://t.me/{temp.U_NAME}?start={message.command[1]}")])
-        sh = await client.send_message(
-            chat_id=message.from_user.id,
-            text='**Pʟᴇᴀꜱᴇ Jᴏɪɴ Oᴜʀ Cʜᴀɴɴᴇʟs Tᴏ Gᴇᴛ Yᴏᴜʀ Rᴇǫᴜᴇꜱᴛᴇᴅ Mᴏᴠɪᴇ Fɪʟᴇ 🚀**',
-            reply_markup=InlineKeyboardMarkup(btn),
-            parse_mode=enums.ParseMode.MARKDOWN
-        )
-        check = await check_loop_sub2(client, message)
-        if check:
-            await sh.delete()
-        else:
-            return
+        logger.error(f"Error in start command fsub check: {e}")
 
     if len(message.command) == 2 and message.command[1] in ["subscribe", "error", "okay", "help"]:
         buttons = [[
