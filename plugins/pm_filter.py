@@ -8,8 +8,8 @@ import logging
 
 from pyrogram import Client, filters, enums
 from pyrogram.enums import ButtonStyle
-from pyrogram.errors import FloodWait, UserIsBlocked, MessageNotModified, PeerIdInvalid, QueryIdInvalid
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto, ReplyParameters
+from pyrogram.errors import FloodWait, UserIsBlocked, MessageNotModified, PeerIdInvalid, QueryIdInvalid, MessageIdInvalid
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto, ReplyParameters, LinkPreviewOptions
 
 from datetime import datetime, timedelta
 
@@ -162,7 +162,20 @@ async def next_page_cb(bot, query):
         )
     except MessageNotModified:
         pass
-    await query.answer()
+    except FloodWait as e:
+        logger.warning(f"FloodWait in next_page_cb: {e.value}s")
+        try:
+            await query.answer(f"⚠️ Please wait {e.value} seconds before clicking again.", show_alert=True)
+        except Exception:
+            pass
+    except (QueryIdInvalid, MessageIdInvalid):
+        pass
+    except Exception as e:
+        logger.error(f"Error in next_page_cb: {e}")
+    try:
+        await query.answer()
+    except Exception:
+        pass
 
 
 def generate_main_buttons(files, offset, search_key, next_offset=0):
@@ -308,7 +321,20 @@ async def languages_cb_handler(client: Client, query: CallbackQuery):
         await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
     except MessageNotModified:
         pass
-    await query.answer()
+    except FloodWait as e:
+        logger.warning(f"FloodWait in languages_cb_handler: {e.value}s")
+        try:
+            await query.answer(f"⚠️ Please wait {e.value} seconds before clicking again.", show_alert=True)
+        except Exception:
+            pass
+    except (QueryIdInvalid, MessageIdInvalid):
+        pass
+    except Exception as e:
+        logger.error(f"Error in languages_cb_handler: {e}")
+    try:
+        await query.answer()
+    except Exception:
+        pass
         
 @Client.on_callback_query(filters.regex(r"^fl#"))
 async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
@@ -369,10 +395,23 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
         await query.answer(alert_message_success, show_alert=True)    
 
     except MessageNotModified:
-        await query.answer(alert_message_success, show_alert=True)
+        try:
+            await query.answer(alert_message_success, show_alert=True)
+        except Exception:
+            pass
+    except FloodWait as e:
+        logger.warning(f"FloodWait in filter_languages_cb_handler: {e.value}s")
+        try:
+            await query.answer(f"⚠️ Please wait {e.value} seconds before clicking again.", show_alert=True)
+        except Exception:
+            pass
+    except (QueryIdInvalid, MessageIdInvalid):
         pass
     except Exception as e:
-        await query.answer("Aɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴅᴜʀɪɴɢ ʟᴀɴɢᴜᴀɢᴇ sᴇᴀʀᴄʜ.", show_alert=True)
+        try:
+            await query.answer("Aɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴅᴜʀɪɴɢ ʟᴀɴɢᴜᴀɢᴇ sᴇᴀʀᴄʜ.", show_alert=True)
+        except Exception:
+            pass
 
 # ---------------------------
 # Quality Feature Handlers
@@ -438,8 +477,25 @@ async def qualities_cb_handler(client: Client, query: CallbackQuery):
         )
     ])
 
-    await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
-    await query.answer()
+    try:
+        await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
+    except MessageNotModified:
+        pass
+    except FloodWait as e:
+        logger.warning(f"FloodWait in qualities_cb_handler: {e.value}s")
+        try:
+            await query.answer(f"⚠️ Please wait {e.value} seconds before clicking again.", show_alert=True)
+        except Exception:
+            pass
+    except (QueryIdInvalid, MessageIdInvalid):
+        pass
+    except Exception as e:
+        logger.error(f"Error in qualities_cb_handler: {e}")
+
+    try:
+        await query.answer()
+    except Exception:
+        pass
 
 @Client.on_callback_query(filters.regex(r"^fq#"))
 async def filter_quality_cb_handler(client: Client, query: CallbackQuery):
@@ -498,10 +554,23 @@ async def filter_quality_cb_handler(client: Client, query: CallbackQuery):
         await query.answer(alert_message, show_alert=True)
 
     except MessageNotModified:
-        await query.answer(alert_message, show_alert=True)
+        try:
+            await query.answer(alert_message, show_alert=True)
+        except Exception:
+            pass
+    except FloodWait as e:
+        logger.warning(f"FloodWait in filter_quality_cb_handler: {e.value}s")
+        try:
+            await query.answer(f"⚠️ Please wait {e.value} seconds before clicking again.", show_alert=True)
+        except Exception:
+            pass
+    except (QueryIdInvalid, MessageIdInvalid):
         pass
     except Exception as e:
-        await query.answer("Aɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴅᴜʀɪɴɢ ᴏ̨ᴜᴀʟɪᴛʏ sᴇᴀʀᴄʜ.", show_alert=True)
+        try:
+            await query.answer("Aɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴅᴜʀɪɴɢ ᴏ̨ᴜᴀʟɪᴛʏ sᴇᴀʀᴄʜ.", show_alert=True)
+        except Exception:
+            pass
         
 @Client.on_callback_query(filters.regex(r"^sp#"))
 async def spell_check_cb_handler(client: Client, query: CallbackQuery):
@@ -964,7 +1033,7 @@ async def global_filters(client, message):
             markup = InlineKeyboardMarkup(button_data) if button_data else None
 
         if fileid == "None":
-            await client.send_message(message.chat.id, reply_text, reply_markup=markup, disable_web_page_preview=True)
+            await client.send_message(message.chat.id, reply_text, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True))
         else:
             await client.send_cached_media(message.chat.id, fileid, caption=reply_text or "", reply_markup=markup)
         return True

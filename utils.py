@@ -3,6 +3,7 @@ import asyncio
 import aiohttp
 import re
 import os
+import base64
 from urllib.parse import quote
 from datetime import datetime, timedelta
 from typing import Union, List, Tuple
@@ -623,6 +624,24 @@ def get_search_url(query: str) -> str:
     base = STREAM_URL.rstrip('/')
     clean_q = str(query or "").strip()
     return f"{base}/search/{quote(clean_q)}" if clean_q else f"{base}/search"
+
+
+def safe_b64decode(data: str) -> Union[str, None]:
+    """
+    Safely decodes a urlsafe base64 string.
+    Returns decoded UTF-8 string if successful, or None if input is invalid base64.
+    """
+    if not data or not isinstance(data, str):
+        return None
+    data = data.strip()
+    if len(data) % 4 == 1:
+        return None
+    try:
+        padded_data = data + "=" * (-len(data) % 4)
+        return base64.urlsafe_b64decode(padded_data).decode("utf-8", errors="ignore")
+    except Exception:
+        return None
+
 
 
 

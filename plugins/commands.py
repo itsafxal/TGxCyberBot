@@ -8,13 +8,13 @@ import json
 from datetime import datetime, timedelta
 from pyrogram import Client, filters, enums
 from pyrogram.errors import InputUserDeactivated, FloodWait, UserIsBlocked
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions
 
 from Script import script
 from database.ia_filterdb import Media2, Media3, get_file_details, unpack_new_file_id
 from database.users_chats_db import db
 from info import ADMINS, LOG_CHANNEL, CUSTOM_FILE_CAPTION, AUTO_DEL, PICS, PROTECT_CONTENT
-from utils import get_size, is_requested_one, is_requested_two, is_requested_three, temp, check_loop_sub, check_loop_sub1, check_loop_sub2, check_loop_sub3, get_stream_buttons, get_stream_buttons_async, build_dynamic_fsub_keyboard, check_loop_sub_dynamic
+from utils import get_size, is_requested_one, is_requested_two, is_requested_three, temp, check_loop_sub, check_loop_sub1, check_loop_sub2, check_loop_sub3, get_stream_buttons, get_stream_buttons_async, build_dynamic_fsub_keyboard, check_loop_sub_dynamic, safe_b64decode
 from sql.db import delete_all_files_sql, delete_file_sql, get_search_results
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -179,6 +179,9 @@ async def start(client, message):
             else:
                 return
 
+    except (UserIsBlocked, InputUserDeactivated):
+        logger.info(f"User {user_id} blocked the bot during start fsub check.")
+        return
     except Exception as e:
         logger.error(f"Error in start command fsub check: {e}")
 
@@ -282,7 +285,9 @@ async def start(client, message):
         sts = await message.reply("Please wait")
         try:
             b_string = data.split("DSTORE-", 1)[1]
-            decoded = base64.urlsafe_b64decode(b_string + "=" * (-len(b_string) % 4)).decode("utf-8", errors="ignore")
+            decoded = safe_b64decode(b_string)
+            if not decoded:
+                return await sts.edit("❌ Invalid DSTORE link.")
             try:
                 f_msg_id, l_msg_id, f_chat_id, protect = decoded.split("_", 3)
             except ValueError:
@@ -291,7 +296,7 @@ async def start(client, message):
 
             f_msg_id, l_msg_id, f_chat_id = int(f_msg_id), int(l_msg_id), int(f_chat_id)
         except Exception as e:
-            logger.error(f"DSTORE decode error: {e}")
+            logger.warning(f"DSTORE decode error: {e}")
             return await sts.edit("❌ Invalid DSTORE link.")
 
         for i in range(f_msg_id, l_msg_id + 1, 100):
@@ -339,7 +344,9 @@ async def start(client, message):
     files_ = await get_file_details(file_id)
     if not files_:
         try:
-            decoded = base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode("utf-8", errors="ignore")
+            decoded = safe_b64decode(data)
+            if not decoded:
+                return await message.reply("❌ This file may be expired or invalid.")
             if "_" in decoded:
                 prefix, file_id = decoded.split("_", 1)
             else:
@@ -368,13 +375,17 @@ async def start(client, message):
  
                 stream_markup = await get_stream_buttons_async(file_id=file_id, file_name=title)
                 await msg.edit_caption(caption, reply_markup=stream_markup)
-                #schedule_message_deletion(client, msg, delay_seconds=AUTO_DEL)
                 return
+            except (UserIsBlocked, InputUserDeactivated):
+                logger.info(f"User {user_id} blocked bot or deactivated account.")
+                return
+            except FloodWait as e:
+                await asyncio.sleep(e.value)
             except Exception as e:
                 logger.error(f"Error sending file: {e}")
                 return await message.reply("❌ Failed to send the file.")
         except Exception as e:
-            logger.error(f"Error in file/batch handler: {e}")
+            logger.warning(f"Error in file/batch handler: {e}")
             return await message.reply("❌ This file may be expired or invalid.")
 
     files = files_[0]
@@ -399,10 +410,11 @@ async def start(client, message):
             protect_content=True if prefix == 'filep' else False,
             reply_markup=stream_markup
         )
-        #delete_notice = await ok.reply(DELETE_TXT)
-        #asyncio.create_task(auto_delete_message(delete_notice, 15))
-        #schedule_message_deletion2(client, ok, delay_seconds=AUTO_DEL)
-        
+    except (UserIsBlocked, InputUserDeactivated):
+        logger.info(f"User {user_id} blocked bot or deactivated account when sending cached media.")
+    except FloodWait as e:
+        logger.warning(f"FloodWait when sending media to user {user_id}: {e.value}s")
+        await asyncio.sleep(e.value)
     except Exception as e:
         logger.error(f"Error sending cached media: {e}")
 
@@ -582,7 +594,7 @@ async def cmds_x(_, message):
     await message.reply_text(script.CMDS_TXT,
     reply_markup=reply_markup,
     parse_mode=enums.ParseMode.HTML,
-    disable_web_page_preview=True
+    link_preview_options=LinkPreviewOptions(is_disabled=True)
     )
     
 @Client.on_message(filters.command('autofilter') & filters.user(ADMINS))

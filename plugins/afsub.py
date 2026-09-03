@@ -5,7 +5,7 @@ from pyrogram import Client, filters, enums
 import sys, os
 from info import ADMINS
 from pyrogram.errors import ChatAdminRequired, FloodWait
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ChatJoinRequest, Message
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ChatJoinRequest, Message, LinkPreviewOptions
 from pyrogram.errors.exceptions.bad_request_400 import MessageTooLong, PeerIdInvalid
 from database.users_chats_db import db
 from utils import temp
@@ -134,7 +134,7 @@ async def set_secondary_chat1(bot, m):
         f"🆔 `{chat.id}`\n"
         f"📛 `{chat.title}`\n"
         f"🔗 [Invite Link]({link})",
-        disable_web_page_preview=True,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
         parse_mode=enums.ParseMode.MARKDOWN
     )
 
@@ -175,7 +175,7 @@ async def set_secondary_chat2(bot, m):
         f"🆔 `{chat.id}`\n"
         f"📛 `{chat.title}`\n"
         f"🔗 [Invite Link]({link})",
-        disable_web_page_preview=True,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
         parse_mode=enums.ParseMode.MARKDOWN
     )
     
@@ -216,7 +216,7 @@ async def set_secondary_chat3(bot, m):
         f"🆔 `{chat.id}`\n"
         f"📛 `{chat.title}`\n"
         f"🔗 [Invite Link]({link})",
-        disable_web_page_preview=True,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
         parse_mode=enums.ParseMode.MARKDOWN
     )
 
@@ -356,7 +356,7 @@ async def add_fsub_chatt1(bot, m):
         f"**📝 Chat Name:** `{chat.title}`\n"
         f"**🔗 Invite Link:** [Click Here]({link})"
     )
-    return await m.reply(text=text, disable_web_page_preview=True, parse_mode=enums.ParseMode.MARKDOWN)
+    return await m.reply(text=text, link_preview_options=LinkPreviewOptions(is_disabled=True), parse_mode=enums.ParseMode.MARKDOWN)
 
 
 @Client.on_message(filters.command("sub2") & filters.user(ADMINS))
@@ -413,7 +413,7 @@ async def add_fsub_chatt2(bot, m):
         f"**📝 Chat Name:** `{chat.title}`\n"
         f"**🔗 Invite Link:** [Click Here]({link})"
     )
-    return await m.reply(text=text, disable_web_page_preview=True, parse_mode=enums.ParseMode.MARKDOWN)
+    return await m.reply(text=text, link_preview_options=LinkPreviewOptions(is_disabled=True), parse_mode=enums.ParseMode.MARKDOWN)
 
 
 @Client.on_message(filters.command("sub3") & filters.user(ADMINS))
@@ -470,7 +470,7 @@ async def add_fsub_chatt3(bot, m):
         f"**📝 Chat Name:** `{chat.title}`\n"
         f"**🔗 Invite Link:** [Click Here]({link})"
     )
-    return await m.reply(text=text, disable_web_page_preview=True, parse_mode=enums.ParseMode.MARKDOWN)
+    return await m.reply(text=text, link_preview_options=LinkPreviewOptions(is_disabled=True), parse_mode=enums.ParseMode.MARKDOWN)
 
 
 @Client.on_message(filters.command("view_sub") & filters.user(ADMINS))
@@ -547,7 +547,7 @@ async def get_fsub_chats(bot, m):
         else:
             all_channels_text += "**─── Channel 3 ───**\n  __No Force Subscribe channel set for slot 3.__"
 
-        await m.reply_text(all_channels_text, disable_web_page_preview=True, parse_mode=enums.ParseMode.MARKDOWN)
+        await m.reply_text(all_channels_text, link_preview_options=LinkPreviewOptions(is_disabled=True), parse_mode=enums.ParseMode.MARKDOWN)
 
     except Exception as e:
         await m.reply_text(f"An error occurred while fetching channels: `{str(e)}`", parse_mode=enums.ParseMode.MARKDOWN)
@@ -568,7 +568,7 @@ async def del_fsub_chats1(bot, m):
         f"🗑️ **Force Subscribe Channel 1 Successfully Removed!**\n\n"
         f"**🆔 Chat ID:** `{old_channel_id}`"
     )
-    return await m.reply(text=text, disable_web_page_preview=True, parse_mode=enums.ParseMode.MARKDOWN)
+    return await m.reply(text=text, link_preview_options=LinkPreviewOptions(is_disabled=True), parse_mode=enums.ParseMode.MARKDOWN)
 
 
 @Client.on_message(filters.command("delsub2") & filters.user(ADMINS))
@@ -586,7 +586,7 @@ async def del_fsub_chats2(bot, m):
         f"🗑️ **Force Subscribe Channel 2 Successfully Removed!**\n\n"
         f"**🆔 Chat ID:** `{old_channel_id}`"
     )
-    return await m.reply(text=text, disable_web_page_preview=True, parse_mode=enums.ParseMode.MARKDOWN)
+    return await m.reply(text=text, link_preview_options=LinkPreviewOptions(is_disabled=True), parse_mode=enums.ParseMode.MARKDOWN)
 
 
 @Client.on_message(filters.command("delsub3") & filters.user(ADMINS))
@@ -604,7 +604,7 @@ async def del_fsub_chats3(bot, m):
         f"🗑️ **Force Subscribe Channel 3 Successfully Removed!**\n\n"
         f"**🆔 Chat ID:** `{old_channel_id}`"
     )
-    return await m.reply(text=text, disable_web_page_preview=True, parse_mode=enums.ParseMode.MARKDOWN)
+    return await m.reply(text=text, link_preview_options=LinkPreviewOptions(is_disabled=True), parse_mode=enums.ParseMode.MARKDOWN)
 
 @Client.on_message(filters.command("2delsub1") & filters.user(ADMINS))
 async def del_secondary_chat1(bot, m):
@@ -620,7 +620,7 @@ async def del_secondary_chat1(bot, m):
         f"🗑️ **Secondary Force Subscribe Channel 1 Successfully Removed!**\n\n"
         f"**🆔 Chat ID:** `{old_channel_id}`"
     )
-    return await m.reply(text=text, disable_web_page_preview=True, parse_mode=enums.ParseMode.MARKDOWN)
+    return await m.reply(text=text, link_preview_options=LinkPreviewOptions(is_disabled=True), parse_mode=enums.ParseMode.MARKDOWN)
 
 @Client.on_message(filters.command("2delsub2") & filters.user(ADMINS))
 async def del_secondary_chat2(bot, m):
@@ -636,7 +636,7 @@ async def del_secondary_chat2(bot, m):
         f"🗑️ **Secondary Force Subscribe Channel 2 Successfully Removed!**\n\n"
         f"**🆔 Chat ID:** `{old_channel_id}`"
     )
-    return await m.reply(text=text, disable_web_page_preview=True, parse_mode=enums.ParseMode.MARKDOWN)
+    return await m.reply(text=text, link_preview_options=LinkPreviewOptions(is_disabled=True), parse_mode=enums.ParseMode.MARKDOWN)
 
 @Client.on_message(filters.command("2delsub3") & filters.user(ADMINS))
 async def del_secondary_chat3(bot, m):
@@ -652,4 +652,4 @@ async def del_secondary_chat3(bot, m):
         f"🗑️ **Secondary Force Subscribe Channel 3 Successfully Removed!**\n\n"
         f"**🆔 Chat ID:** `{old_channel_id}`"
     )
-    return await m.reply(text=text, disable_web_page_preview=True, parse_mode=enums.ParseMode.MARKDOWN)
+    return await m.reply(text=text, link_preview_options=LinkPreviewOptions(is_disabled=True), parse_mode=enums.ParseMode.MARKDOWN)

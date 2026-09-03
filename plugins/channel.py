@@ -1,6 +1,6 @@
 import asyncio
 from pyrogram import Client, filters, enums
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from info import CHANNELS, DATABASE_URI, LOG_CHANNEL
 from database.ia_filterdb import save_file2, save_file3, check_file
 from sql.db import save_file_sql
@@ -79,7 +79,7 @@ async def auto_post_new_file(bot, media):
             text=post_text,
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML,
-            disable_web_page_preview=True
+            link_preview_options=LinkPreviewOptions(is_disabled=True)
         )
     except Exception as e:
         logging.error(f"Error in auto_post_new_file: {e}")
