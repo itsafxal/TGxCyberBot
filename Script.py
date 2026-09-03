@@ -64,41 +64,65 @@ class script(object):
 📛 Username : @{}
 🤖 Bot : @{}
 """
-    CMDS_TXT = """<u>🎀 𝐀𝐝𝐦𝐢𝐧 𝐂𝐨𝐦𝐦𝐚𝐧𝐝𝐬 🎀</u>   
-/broadcast <skip_count>	Broadcast a message to all users
-/logs	Download latest log file
-/delete_duplicate	Delete duplicate files by same size different name or different thumbnail
-/deletefiles	Delete files by sertain keyword or filename
-<u>𝐅𝐢𝐥𝐭𝐞𝐫𝐬</u>
-/gfilter <name>	Add global filter (with reply or text)
-/gfilters or /viewgfilters	View all global filters
-/delg <name>	Delete a specific global filter
-/delallg	Delete all global filters (with confirmation)
+    CMDS_TXT = """<b><u>🤖 BOT COMMANDS & USAGE GUIDE 🤖</u></b>
 
-<u>⚡ 𝐅𝐬𝐮𝐛 ⚡</u>
-/sub1 <chat_id>	Set Force Subscribe Channel 1
-/sub2 <chat_id>	Set Force Subscribe Channel 2
-/sub3 <chat_id>	Set Force Subscribe Channel 3
-/2sub1 <chat_id>	Set Secondary Channel for FS1
-/2sub2 <chat_id>	Set Secondary Channel for FS2
-/2sub3 <chat_id>	Set Secondary Channel for FS3
-/delsub1 <chat_id>	Del Force Subscribe Channel 1
-/delsub2 <chat_id>	Del Force Subscribe Channel 2
-/delsub3 <chat_id>	Del Force Subscribe Channel 3
-/2delsub1 <chat_id>	Del Secondary Channel for FS1
-/2delsub2 <chat_id>	Del Secondary Channel for FS2
-/2delsub3 <chat_id>	Del Secondary Channel for FS3
-/setcount1 <number>	Set threshold for FS1
-/setcount2 <number>	Set threshold for FS2
-/setcount3 <number>	Set threshold for FS3
-/view_sub	View all Force Subscribe settings and counts
-<u>🧿 𝐌𝐨𝐝𝐞𝐫𝐚𝐭𝐢𝐨𝐧 🧿</u>
-Command	Description
-/ban <user_id> [reason]	Ban a user
-/unban <user_id>	Unban a user
-/disable <chat_id> [reason]	Disable bot in a group
-/enable <chat_id>	Enable bot back in a group
-/leave <chat_id>	Force bot to leave a group"""
+<b>⚡ <u>General Commands</u></b>
+• <code>/start</code> - Start the bot or open file link
+• <code>/cmds</code> - View command list & usage
+• <code>/ping</code> - Check bot response speed
+• <code>/id</code> - Get user or chat Telegram ID
+• <code>/info</code> - Get detailed user information
+• <code>/latest</code> - View latest movie releases
+• <code>/request [movie_name]</code> - Request a movie or series
+• <code>/reportbug [desc]</code> - Report a bug to admins
+
+<b>📁 <u>File Sharing & Link Store</u></b>
+• <code>/link</code> (reply to media) - Create a public file link
+• <code>/plink</code> (reply to media) - Create a protected file link
+• <code>/batch [link1] [link2]</code> - Create a batch file link
+• <code>/pbatch [link1] [link2]</code> - Create a protected batch link
+
+<b>👑 <u>Admin & Indexing Commands</u></b>
+• Forward last msg or post link - Start channel indexing
+• <code>/setskip [number]</code> - Set skip offset for indexing
+• <code>/stats</code> - Show bot & database statistics
+• <code>/users</code> - View total bot users
+• <code>/chats</code> - View total connected chats
+• <code>/autofilter [on/off]</code> - Enable or disable auto filter
+• <code>/delete [file_name]</code> - Delete a specific file from DB
+• <code>/deletefiles [keyword]</code> - Delete files matching keyword
+• <code>/delete_duplicate</code> - Clean up duplicate media files
+• <code>/deleteall</code> - Delete all indexed files from DB
+• <code>/broadcast</code> (reply to msg) - Broadcast message to all users
+• <code>/update</code> - Restart or update the bot
+
+<b>🔍 <u>Global Filters</u></b>
+• <code>/gfilter [name] [reply/text]</code> - Add a global filter
+• <code>/gfilters</code> or <code>/viewgfilters</code> - View all active global filters
+• <code>/delg [name]</code> - Delete a specific global filter
+• <code>/delallg</code> - Clear all global filters
+
+<b>📢 <u>Force Subscribe (FSub) Management</u></b>
+• <code>/sub1 [chat_id]</code> - Set Primary FSub Channel 1
+• <code>/sub2 [chat_id]</code> - Set Primary FSub Channel 2
+• <code>/sub3 [chat_id]</code> - Set Primary FSub Channel 3
+• <code>/2sub1 [chat_id]</code> - Set Secondary FSub Channel 1
+• <code>/2sub2 [chat_id]</code> - Set Secondary FSub Channel 2
+• <code>/2sub3 [chat_id]</code> - Set Secondary FSub Channel 3
+• <code>/setcount1 [number]</code> - Set count threshold for FSub 1
+• <code>/setcount2 [number]</code> - Set count threshold for FSub 2
+• <code>/setcount3 [number]</code> - Set count threshold for FSub 3
+• <code>/delsub1</code> / <code>/delsub2</code> / <code>/delsub3</code> - Remove Primary FSub
+• <code>/2delsub1</code> / <code>/2delsub2</code> / <code>/2delsub3</code> - Remove Secondary FSub
+• <code>/view_sub</code> - View all FSub status & counts
+
+<b>🛡️ <u>Moderation & Admin Tools</u></b>
+• <code>/ban [user_id] [reason]</code> - Ban a user from the bot
+• <code>/unban [user_id]</code> - Unban a user
+• <code>/disable [chat_id] [reason]</code> - Disable bot in a group
+• <code>/enable [chat_id]</code> - Re-enable bot in a group
+• <code>/leave [chat_id]</code> - Force bot to leave a group
+• <code>/invite [chat_id]</code> - Generate invite link for a group"""
     
     MAIN_RESULT_TXT = """𝗛𝗘𝗬 <emoji id='5413694143601842851'>👋</emoji> {cyber} <emoji id='5397890811436213746'>🫶</emoji>
     

@@ -577,71 +577,90 @@ async def index_files_to_db(client: Client, progress_message: Message, chat_id: 
         total_messages_in_range_count = len(message_ids_to_fetch_range)
 
         fetching_semaphore = asyncio.Semaphore(10)
+        last_ui_update_time = time.time()
+        BATCH_CHUNK_STEP = 500
 
         LOGGER.info(f"Iterating messages for {chat_id} from {last_message_id} down to {start_message_id_for_range}. Total approx: {total_messages_in_range_count}")
 
         # Initial progress message update outside the loop to ensure it appears quickly
-        await progress_message.edit(
-            f"✨ **Indexing Initialized!** ✨\n\n"
-            f"**Channel:** `{chat_id}`\n"
-            f"**Messages to Scan:** `{total_messages_in_range_count}` (from ID `{start_message_id_for_range}` to `{last_message_id}`)\n"
-            f"**Current Status:** Fetching messages... 📥\n"
-            f"**Time Elapsed:** `{get_readable_time(time.time() - start_time)}`\n"
-            f"**Progress:** `0%` (0/0)\n"
-            f"**Queue:** `Empty`",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton('🛑 Cancel Indexing', callback_data='index_cancel')]]
-            ),
-            parse_mode=enums.ParseMode.MARKDOWN
-        )
+        try:
+            await progress_message.edit(
+                f"✨ **Indexing Initialized!** ✨\n\n"
+                f"**Channel:** `{chat_id}`\n"
+                f"**Messages to Scan:** `{total_messages_in_range_count}` (from ID `{start_message_id_for_range}` to `{last_message_id}`)\n"
+                f"**Current Status:** Fetching messages... 📥\n"
+                f"**Time Elapsed:** `{get_readable_time(time.time() - start_time)}`\n"
+                f"**Progress:** `0%` (0/0)\n"
+                f"**Queue:** `Empty`",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton('🛑 Cancel Indexing', callback_data='index_cancel')]]
+                ),
+                parse_mode=enums.ParseMode.MARKDOWN
+            )
+        except Exception:
+            pass
 
-        for i in range(0, total_messages_in_range_count, 100):
+        for i in range(0, total_messages_in_range_count, BATCH_CHUNK_STEP):
             if temp.CANCEL:
                 LOGGER.info(f"Indexing cancelled for {chat_id} by user request during message fetching loop.")
                 break
 
-            chunk_of_ids = message_ids_to_fetch_range[i : i + 100]
-            if not chunk_of_ids:
+            sub_chunks = []
+            for j in range(i, min(i + BATCH_CHUNK_STEP, total_messages_in_range_count), 100):
+                chunk_ids = list(message_ids_to_fetch_range[j : j + 100])
+                if chunk_ids:
+                    sub_chunks.append(chunk_ids)
+
+            if not sub_chunks:
                 break
 
             try:
-                fetched_messages_in_chunk = await fetch_messages_chunk(client, chat_id, chunk_of_ids, fetching_semaphore)
+                fetched_chunks_results = await asyncio.gather(
+                    *[fetch_messages_chunk(client, chat_id, chunk, fetching_semaphore) for chunk in sub_chunks],
+                    return_exceptions=True
+                )
 
-                if fetched_messages_in_chunk:
-                    await auto_file_queue.add_messages(fetched_messages_in_chunk)
-                    messages_fetched_this_run += len(fetched_messages_in_chunk)
-                    # Update total_messages_scanned_in_channel with the minimum ID processed so far (since we iterate backwards)
-                    # This gives a better sense of 'how far back' we've scanned.
-                    if fetched_messages_in_chunk:
-                        min_id_in_chunk = min(m.id for m in fetched_messages_in_chunk)
-                        total_messages_scanned_in_channel = min(total_messages_scanned_in_channel if total_messages_scanned_in_channel > 0 else last_message_id, min_id_in_chunk)
-                    
-                # Update progress every 500 messages fetched or if it's near the end of the range
-                if messages_fetched_this_run % 500 == 0 or (last_message_id - total_messages_scanned_in_channel < 100 and messages_fetched_this_run > 0):
+                for chunk_ids, result in zip(sub_chunks, fetched_chunks_results):
+                    if isinstance(result, Exception):
+                        LOGGER.error(f"Error during fetching chunk {chunk_ids[0]}-{chunk_ids[-1]} from {chat_id}: {result}")
+                        global_errors += len(chunk_ids)
+                    elif result:
+                        await auto_file_queue.add_messages(result)
+                        messages_fetched_this_run += len(result)
+                        min_id_in_chunk = min(m.id for m in result)
+                        total_messages_scanned_in_channel = min(
+                            total_messages_scanned_in_channel if total_messages_scanned_in_channel > 0 else last_message_id,
+                            min_id_in_chunk
+                        )
+
+                now = time.time()
+                if now - last_ui_update_time >= 3.0 or i + BATCH_CHUNK_STEP >= total_messages_in_range_count:
+                    last_ui_update_time = now
                     total_messages_to_process = last_message_id - start_message_id_for_range + 1
-                    # Ensure messages_fetched_this_run doesn't exceed total_messages_to_process for percentage calculation
                     display_progress = min(messages_fetched_this_run, total_messages_to_process)
-                    
-                    processed_progress_percentage = (display_progress / total_messages_to_process) * 100 if total_messages_to_process > 0 else 0
+                    elapsed_time = now - start_time
 
-                    elapsed_time = time.time() - start_time
-                    await progress_message.edit(
-                        f"📊 **Indexing Progress Update** 📊\n\n"
-                        f"**Channel:** `{chat_id}`\n"
-                        f"**Target Range:** `{start_message_id_for_range}` to `{last_message_id}`\n\n"
-                        f"**Messages Fetched:** `{messages_fetched_this_run}` / `{total_messages_in_range_count}`\n"
-                        f"**Processing Queue:** `{auto_file_queue._queue.qsize()}` messages awaiting processing\n\n"
-                        f"--- **Current Stats** ---\n"
-                        f"**✅ Saved:** `{global_total_files}` files\n"
-                        f"**⚠️ Duplicates:** `{global_duplicate}` skipped\n"
-                        f"**🚫 No Media:** `{global_no_media}` skipped\n"
-                        f"**❌ Errors:** `{global_errors}` encountered\n\n"
-                        f"**Time Elapsed:** `{get_readable_time(elapsed_time)}`",
-                        reply_markup=InlineKeyboardMarkup(
-                            [[InlineKeyboardButton('🛑 Cancel Indexing', callback_data='index_cancel')]]
-                        ),
-                        parse_mode=enums.ParseMode.MARKDOWN
-                    )
+                    try:
+                        await progress_message.edit(
+                            f"📊 **Indexing Progress Update** 📊\n\n"
+                            f"**Channel:** `{chat_id}`\n"
+                            f"**Target Range:** `{start_message_id_for_range}` to `{last_message_id}`\n\n"
+                            f"**Messages Fetched:** `{messages_fetched_this_run}` / `{total_messages_in_range_count}`\n"
+                            f"**Processing Queue:** `{auto_file_queue._queue.qsize()}` messages awaiting processing\n\n"
+                            f"--- **Current Stats** ---\n"
+                            f"**✅ Saved:** `{global_total_files}` files\n"
+                            f"**⚠️ Duplicates:** `{global_duplicate}` skipped\n"
+                            f"**🚫 No Media:** `{global_no_media}` skipped\n"
+                            f"**❌ Errors:** `{global_errors}` encountered\n\n"
+                            f"**Time Elapsed:** `{get_readable_time(elapsed_time)}`",
+                            reply_markup=InlineKeyboardMarkup(
+                                [[InlineKeyboardButton('🛑 Cancel Indexing', callback_data='index_cancel')]]
+                            ),
+                            parse_mode=enums.ParseMode.MARKDOWN
+                        )
+                    except (FloodWait, MessageNotModified, Exception) as edit_err:
+                        LOGGER.debug(f"Progress message edit skipped: {edit_err}")
+
                     if motor_col_general is not None:
                         try:
                             queue = auto_file_queue._queue.qsize()
@@ -657,11 +676,11 @@ async def index_files_to_db(client: Client, progress_message: Message, chat_id: 
                                 upsert=True
                             )
                         except Exception as e:
-                            print(f"Error during update index id to db. {e}")
-                
+                            LOGGER.debug(f"Error updating index id to db: {e}")
+
             except Exception as e:
-                LOGGER.error(f"Error during fetching chunk {chunk_of_ids[0]}-{chunk_of_ids[-1]} from {chat_id}: {e}", exc_info=True)
-                global_errors += len(chunk_of_ids)
+                LOGGER.error(f"Error during parallel fetching from {chat_id}: {e}", exc_info=True)
+                global_errors += sum(len(c) for c in sub_chunks)
             
         LOGGER.info(f"Finished fetching all intended messages for {chat_id}. Waiting for remaining queue items to process.")
         

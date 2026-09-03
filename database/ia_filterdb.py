@@ -103,11 +103,11 @@ async def bulk_check_files(media_list: List[Any]) -> Dict[str, bool]:
 
     async def get_db2_results():
         logger.debug(f"Querying DB2 for {len(file_ids_to_check)} IDs.")
-        return await Media2.collection.find({"_id": {"$in": file_ids_to_check}}).to_list(length=None)
+        return await Media2.collection.find({"_id": {"$in": file_ids_to_check}}, {"_id": 1}).to_list(length=None)
 
     async def get_db3_results():
         logger.debug(f"Querying DB3 for {len(file_ids_to_check)} IDs.")
-        return await Media3.collection.find({"_id": {"$in": file_ids_to_check}}).to_list(length=None)
+        return await Media3.collection.find({"_id": {"$in": file_ids_to_check}}, {"_id": 1}).to_list(length=None)
 
     db2_task = asyncio.create_task(get_db2_results())
     db3_task = asyncio.create_task(get_db3_results())
@@ -235,108 +235,155 @@ async def save_file3(media):
             logger.debug(f"Successfully saved {file_id} to DB3 (via save_file3).")
             return True, 1
 
-async def bulk_save_files_both_db(media_list: List[Any]) -> Dict[str, Tuple[List[str], List[str], List[str]]]:
-    global _next_db_is_db2
+def prepare_media_doc(media) -> Tuple[str, dict]:
+    file_id, file_ref = unpack_new_file_id(media.file_id)
+    original_file_name = getattr(media, 'caption', media.file_name) or getattr(media, 'file_name', '')
 
+    pattern = re.compile(r'(?<!\w)(?:s|season)[\s._-]*?(\d{1,2})[\s._-]*?(?:e|ep|episode)[\s._-]*?(\d{1,2})(?!\d)', re.IGNORECASE)
+    match = pattern.search(original_file_name)
+
+    if match:
+        season = int(match.group(1))
+        if match.group(2):
+            episode = int(match.group(2))
+            prefix = f"[S{season:02d} EP{episode:02d}]"
+        else:
+            prefix = f"[S{season:02d}]"
+
+        cleaned_name = pattern.sub('', original_file_name).strip()
+        cleaned_name = re.sub(r'[\s._-]+', ' ', cleaned_name).strip()
+        cleaned_name = re.sub(r'\s{2,}', ' ', cleaned_name)
+        processed_name = f"{prefix} {media.file_name}"
+    else:
+        processed_name = str(media.file_name)
+
+    file_name = re.sub(r"(_|\+\s|\-|\.|\+|\[MM\]\s|\[MM\]_|\@TvSeriesBay|\@Cinema\sCompany|\@Cinema_Company|\@CC_|\@CC|\@MM_New|\@MM_Linkz|\@MOVIEHUNT|\@CL|\@FBM|\@CKMSERIES|www_DVDWap_Com_|MLM|\@WMR|\[CF\]\s|\[CF\]|\@IndianMoviez|\@tamil_mm|\@infotainmentmedia|\@trolldcompany|\@Rarefilms|\@yamandanmovies|\[YM\]|\@Mallu_Movies|\@YTSLT|\@DailyMovieZhunt|\@I_M_D_B|\@CC_All|\@PM_Old|Dvdworld|\[KMH\]|\@FBM_HW|\@Film_Kottaka|\@CC_X265|\@CelluloidCineClub|\@cinemaheist|\@telugu_moviez|\@CR_Rockers|\@CCineClub|KC_|\[KC\]|\[AML\])", " ", processed_name)
+
+    doc = {
+        "_id": file_id,
+        "file_ref": file_ref,
+        "file_name": file_name,
+        "file_size": media.file_size,
+        "size": get_size(media.file_size),
+        "file_type": media.file_type,
+        "mime_type": media.mime_type,
+        "caption": getattr(media, 'caption', file_name) or file_name,
+        "date": datetime.datetime.now(pytz.utc)
+    }
+    return file_id, doc
+
+async def bulk_save_files_both_db(media_list: List[Any]) -> Dict[str, Tuple[List[str], List[str], List[str]]]:
     if not media_list:
         return {'db2': ([], [], []), 'db3': ([], [], [])}
 
-    db2_results = ([], [], [])
-    db3_results = ([], [], [])
+    media_db2 = media_list[0::2]
+    media_db3 = media_list[1::2]
 
-    for i, media_item in enumerate(media_list):
-        file_id, _ = unpack_new_file_id(media_item.file_id)
+    res2, res3 = await asyncio.gather(
+        bulk_save_files_db2(media_db2),
+        bulk_save_files_db3(media_db3),
+        return_exceptions=True
+    )
 
-        if _next_db_is_db2:
-            logger.debug(f"Attempting to save {file_id} to DB2.")
-            success, status_code = await save_file2(media_item)
-            current_db_name = "DB2"
-            current_results = db2_results
-        else:
-            logger.debug(f"Attempting to save {file_id} to DB3.")
-            success, status_code = await save_file3(media_item)
-            current_db_name = "DB3"
-            current_results = db3_results
-        
-        if success and status_code == 1:
-            current_results[0].append(file_id)
-            logger.debug(f"Successfully saved {file_id} to {current_db_name}.")
-        elif not success and status_code == 0:
-            current_results[1].append(file_id)
-            logger.debug(f"File {file_id} is a duplicate in {current_db_name}.")
-        elif not success and status_code == 2:
-            current_results[2].append(file_id)
-            logger.error(f"Failed to save {file_id} to {current_db_name} due to validation/commit error.")
-        else:
-            current_results[2].append(file_id)
-            logger.error(f"Unexpected status code ({status_code}) for file {file_id} when saving to {current_db_name}.")
-        
-        _next_db_is_db2 = not _next_db_is_db2
+    db2_results = res2 if isinstance(res2, tuple) else ([], [], [])
+    db3_results = res3 if isinstance(res3, tuple) else ([], [], [])
 
-    logger.info(f"Alternating bulk save completed. DB2: Success {len(db2_results[0])}, Duplicates {len(db2_results[1])}, Failed {len(db2_results[2])}. DB3: Success {len(db3_results[0])}, Duplicates {len(db3_results[1])}, Failed {len(db3_results[2])}.")
-    
     return {'db2': db2_results, 'db3': db3_results}
-        
+
 async def bulk_save_files_db2(media_list: List[Any]) -> Tuple[List[str], List[str], List[str]]:
     if not media_list:
         return [], [], []
-    
+
+    docs = []
+    id_set = set()
+    for media_item in media_list:
+        try:
+            file_id, doc = prepare_media_doc(media_item)
+            docs.append(doc)
+            id_set.add(file_id)
+        except Exception as e:
+            logger.error(f"Error preparing doc for DB2: {e}")
+
+    if not docs:
+        return [], [], []
+
     successful_ids = []
     duplicate_ids = []
     failed_ids = []
-    
-    for media_item in media_list:
-        file_id, _ = unpack_new_file_id(media_item.file_id)
-        
-        logger.debug(f"Attempting to save {file_id} to DB2 (via individual save_file2).")
-        success, status_code = await save_file2(media_item)
-        
-        if success and status_code == 1:
-            successful_ids.append(file_id)
-            logger.debug(f"Successfully saved {file_id} to DB2.")
-        elif not success and status_code == 0:
-            duplicate_ids.append(file_id)
-            logger.debug(f"File {file_id} is a duplicate in DB2.")
-        elif not success and status_code == 2:
-            failed_ids.append(file_id)
-            logger.error(f"Failed to save {file_id} to DB2 due to validation/commit error.")
-        else:
-            failed_ids.append(file_id)
-            logger.error(f"Unexpected status code ({status_code}) for file {file_id} when saving to DB2.")
-            
-    logger.info(f"bulk_save_files_db2 completed. Succeeded: {len(successful_ids)}, Duplicates: {len(duplicate_ids)}, Failed: {len(failed_ids)}.")
-    
+
+    try:
+        res = await Media2.collection.insert_many(docs, ordered=False)
+        successful_ids = [str(i) for i in res.inserted_ids]
+    except BulkWriteError as bwe:
+        write_errors = bwe.details.get('writeErrors', [])
+        dup_ids = set()
+        other_err_ids = set()
+        for err in write_errors:
+            if err.get('code') == 11000:
+                dup_id = str(err.get('keyValue', {}).get('_id') or err.get('op', {}).get('_id'))
+                if dup_id:
+                    dup_ids.add(dup_id)
+            else:
+                err_id = str(err.get('keyValue', {}).get('_id') or err.get('op', {}).get('_id'))
+                if err_id:
+                    other_err_ids.add(err_id)
+
+        duplicate_ids = list(dup_ids)
+        failed_ids = list(other_err_ids)
+        successful_ids = list(id_set - dup_ids - other_err_ids)
+    except Exception as e:
+        logger.exception(f"Unexpected error in bulk_save_files_db2: {e}")
+        failed_ids = list(id_set)
+
+    logger.info(f"bulk_save_files_db2 completed via insert_many. Saved: {len(successful_ids)}, Dups: {len(duplicate_ids)}, Failed: {len(failed_ids)}.")
     return successful_ids, duplicate_ids, failed_ids
 
 async def bulk_save_files_db3(media_list: List[Any]) -> Tuple[List[str], List[str], List[str]]:
     if not media_list:
         return [], [], []
-    
+
+    docs = []
+    id_set = set()
+    for media_item in media_list:
+        try:
+            file_id, doc = prepare_media_doc(media_item)
+            docs.append(doc)
+            id_set.add(file_id)
+        except Exception as e:
+            logger.error(f"Error preparing doc for DB3: {e}")
+
+    if not docs:
+        return [], [], []
+
     successful_ids = []
     duplicate_ids = []
     failed_ids = []
-    
-    for media_item in media_list:
-        file_id, _ = unpack_new_file_id(media_item.file_id)
-        
-        logger.debug(f"Attempting to save {file_id} to DB2 (via individual save_file2).")
-        success, status_code = await save_file3(media_item)
-        
-        if success and status_code == 1:
-            successful_ids.append(file_id)
-            logger.debug(f"Successfully saved {file_id} to DB3.")
-        elif not success and status_code == 0:
-            duplicate_ids.append(file_id)
-            logger.debug(f"File {file_id} is a duplicate in DB3.")
-        elif not success and status_code == 2:
-            failed_ids.append(file_id)
-            logger.error(f"Failed to save {file_id} to DB3 due to validation/commit error.")
-        else:
-            failed_ids.append(file_id)
-            logger.error(f"Unexpected status code ({status_code}) for file {file_id} when saving to DB3.")
-            
-    logger.info(f"bulk_save_files_db3 completed. Succeeded: {len(successful_ids)}, Duplicates: {len(duplicate_ids)}, Failed: {len(failed_ids)}.")
-    
+
+    try:
+        res = await Media3.collection.insert_many(docs, ordered=False)
+        successful_ids = [str(i) for i in res.inserted_ids]
+    except BulkWriteError as bwe:
+        write_errors = bwe.details.get('writeErrors', [])
+        dup_ids = set()
+        other_err_ids = set()
+        for err in write_errors:
+            if err.get('code') == 11000:
+                dup_id = str(err.get('keyValue', {}).get('_id') or err.get('op', {}).get('_id'))
+                if dup_id:
+                    dup_ids.add(dup_id)
+            else:
+                err_id = str(err.get('keyValue', {}).get('_id') or err.get('op', {}).get('_id'))
+                if err_id:
+                    other_err_ids.add(err_id)
+
+        duplicate_ids = list(dup_ids)
+        failed_ids = list(other_err_ids)
+        successful_ids = list(id_set - dup_ids - other_err_ids)
+    except Exception as e:
+        logger.exception(f"Unexpected error in bulk_save_files_db3: {e}")
+        failed_ids = list(id_set)
+
+    logger.info(f"bulk_save_files_db3 completed via insert_many. Saved: {len(successful_ids)}, Dups: {len(duplicate_ids)}, Failed: {len(failed_ids)}.")
     return successful_ids, duplicate_ids, failed_ids
 
 async def fetch_mongo_ids_by_keyword(keyword: str, file_type: str = None) -> set:
