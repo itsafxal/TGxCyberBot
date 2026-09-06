@@ -14,13 +14,13 @@ from Script import script
 from database.ia_filterdb import Media2, Media3, get_file_details, unpack_new_file_id
 from database.users_chats_db import db
 from info import ADMINS, LOG_CHANNEL, CUSTOM_FILE_CAPTION, AUTO_DEL, PICS, PROTECT_CONTENT
-from utils import get_size, is_requested_one, is_requested_two, is_requested_three, temp, check_loop_sub, check_loop_sub1, check_loop_sub2, check_loop_sub3, get_stream_buttons, get_stream_buttons_async, build_dynamic_fsub_keyboard, check_loop_sub_dynamic, safe_b64decode
+from utils import get_size, is_requested_one, is_requested_two, is_requested_three, temp, check_loop_sub, check_loop_sub1, check_loop_sub2, check_loop_sub3, get_stream_buttons, get_stream_buttons_async, build_dynamic_fsub_keyboard, check_loop_sub_dynamic, safe_b64decode, format_time_str, parse_time_to_seconds, add_auto_delete_message, track_bot_message, clean_all_trash
 from sql.db import delete_all_files_sql, delete_file_sql, get_search_results
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-DELETE_TXT = "📁 𝗪𝗮𝗿𝗻𝗶𝗻𝗴 ⚠️\n\n<blockquote>Please note that this movie file will be deleted in 15 minutes to avoid Copyright. To keep it, forward it to a friend or save it to your personal space.</blockquote>"
+DELETE_TXT = "📁 𝗪𝗮𝗿𝗻𝗶𝗻𝗴 ⚠️\n\n<blockquote>Please note that this movie file will be deleted in {} to avoid Copyright. To keep it, forward it to a friend or save it to your personal space.</blockquote>"
 
 async def send_log_report(client, user, item, report_type):
     """Sends a formatted report (bug/request) directly to ADMINS in bot DM."""
@@ -275,7 +275,13 @@ async def start(client, message):
                     protect_content=msg.get("protect", False),
                     reply_markup=stream_markup
                 )
-                #schedule_message_deletion(client, ok, delay_seconds=AUTO_DEL)
+                await add_auto_delete_message(message.chat.id, ok.id, temp.FILE_DEL_TIME, msg_type="file", file_id=msg.get("file_id"))
+                del_notice = await client.send_message(
+                    chat_id=message.chat.id,
+                    text=DELETE_TXT.format(format_time_str(temp.FILE_DEL_TIME)),
+                    parse_mode=enums.ParseMode.HTML
+                )
+                await add_auto_delete_message(message.chat.id, del_notice.id, temp.FILE_DEL_TIME, msg_type="delete_txt")
                 await asyncio.sleep(1)
             except Exception as e:
                 logger.warning(f"Failed to send file: {e}")
@@ -332,7 +338,13 @@ async def start(client, message):
                         protect_content=(protect == "/pbatch"),
                         reply_markup=stream_markup
                     )
-                    #schedule_message_deletion(client, ok, delay_seconds=AUTO_DEL)
+                    await add_auto_delete_message(message.chat.id, ok.id, temp.FILE_DEL_TIME, msg_type="file", file_id=data)
+                    del_notice = await client.send_message(
+                        chat_id=message.chat.id,
+                        text=DELETE_TXT.format(format_time_str(temp.FILE_DEL_TIME)),
+                        parse_mode=enums.ParseMode.HTML
+                    )
+                    await add_auto_delete_message(message.chat.id, del_notice.id, temp.FILE_DEL_TIME, msg_type="delete_txt")
                     await asyncio.sleep(1)
                 except FloodWait as e:
                     await asyncio.sleep(e.x)
@@ -376,6 +388,14 @@ async def start(client, message):
  
                 stream_markup = await get_stream_buttons_async(file_id=file_id, file_name=title)
                 await msg.edit_caption(caption, reply_markup=stream_markup)
+                file_param = f"{prefix}_{file_id}" if prefix else file_id
+                await add_auto_delete_message(user_id, msg.id, temp.FILE_DEL_TIME, msg_type="file", file_id=file_param)
+                del_notice = await client.send_message(
+                    chat_id=user_id,
+                    text=DELETE_TXT.format(format_time_str(temp.FILE_DEL_TIME)),
+                    parse_mode=enums.ParseMode.HTML
+                )
+                await add_auto_delete_message(user_id, del_notice.id, temp.FILE_DEL_TIME, msg_type="delete_txt")
                 return
             except (UserIsBlocked, InputUserDeactivated):
                 logger.info(f"User {user_id} blocked bot or deactivated account.")
@@ -411,6 +431,14 @@ async def start(client, message):
             protect_content=True if prefix == 'filep' else False,
             reply_markup=stream_markup
         )
+        file_param = f"{prefix}_{file_id}" if prefix else file_id
+        await add_auto_delete_message(user_id, ok.id, temp.FILE_DEL_TIME, msg_type="file", file_id=file_param)
+        del_notice = await client.send_message(
+            chat_id=user_id,
+            text=DELETE_TXT.format(format_time_str(temp.FILE_DEL_TIME)),
+            parse_mode=enums.ParseMode.HTML
+        )
+        await add_auto_delete_message(user_id, del_notice.id, temp.FILE_DEL_TIME, msg_type="delete_txt")
     except (UserIsBlocked, InputUserDeactivated):
         logger.info(f"User {user_id} blocked bot or deactivated account when sending cached media.")
     except FloodWait as e:
@@ -619,5 +647,70 @@ async def fil_mod(client, message):
         await m.edit("Aᴜᴛᴏғɪʟᴛᴇʀ ᴍᴏᴅᴇ ᴛᴜʀɴᴇᴅ ᴏғғ 🤫")
     else:
         await m.edit("Try - `/autofilter on` or `/autofilter off`")
+
+@Client.on_message(filters.command(["set_filter_time", "setfiltertime"]) & filters.user(ADMINS))
+async def set_filter_time_command(client, message):
+    if len(message.command) < 2:
+        return await message.reply_text("Usage: `/setfiltertime <seconds/5m/10m>`\n\nExample: `/setfiltertime 300` or `/setfiltertime 5m`", parse_mode=enums.ParseMode.MARKDOWN)
+    raw_time = message.command[1]
+    try:
+        seconds = parse_time_to_seconds(raw_time)
+        if seconds < 5:
+            return await message.reply_text("❌ Filter delete time must be at least 5 seconds.")
+        await db.update_filter_del_time(seconds)
+        temp.FILTER_DEL_TIME = seconds
+        await message.reply_text(
+            f"✅ **Auto Filter Delete Time updated!**\n\n"
+            f"• **New Filter Delete Time:** `{format_time_str(seconds)}` ({seconds}s)",
+            parse_mode=enums.ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        await message.reply_text(f"❌ Invalid time format: `{e}`")
+
+@Client.on_message(filters.command(["set_file_time", "setfiletime"]) & filters.user(ADMINS))
+async def set_file_time_command(client, message):
+    if len(message.command) < 2:
+        return await message.reply_text("Usage: `/setfiletime <seconds/15m/1h>`\n\nExample: `/setfiletime 900` or `/setfiletime 15m`", parse_mode=enums.ParseMode.MARKDOWN)
+    raw_time = message.command[1]
+    try:
+        seconds = parse_time_to_seconds(raw_time)
+        if seconds < 5:
+            return await message.reply_text("❌ File delete time must be at least 5 seconds.")
+        await db.update_file_del_time(seconds)
+        temp.FILE_DEL_TIME = seconds
+        await message.reply_text(
+            f"✅ **Auto File Delete Time updated!**\n\n"
+            f"• **New File Delete Time:** `{format_time_str(seconds)}` ({seconds}s)",
+            parse_mode=enums.ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        await message.reply_text(f"❌ Invalid time format: `{e}`")
+
+@Client.on_message(filters.command(["del_times", "deltimes"]))
+async def view_del_times_command(client, message):
+    filter_time_str = format_time_str(temp.FILTER_DEL_TIME)
+    file_time_str = format_time_str(temp.FILE_DEL_TIME)
+    msg = (
+        "⏱️ **Auto Delete Settings:**\n\n"
+        f"• **Filter Delete Time:** `{filter_time_str}` ({temp.FILTER_DEL_TIME}s)\n"
+        f"• **File Delete Time:** `{file_time_str}` ({temp.FILE_DEL_TIME}s)"
+    )
+    await message.reply_text(msg, parse_mode=enums.ParseMode.MARKDOWN)
+
+@Client.on_message(filters.command("deletetrash") & filters.user(ADMINS))
+async def delete_trash_command(client, message):
+    status_msg = await message.reply_text("🗑️ **Deleting all bot messages across chats... Please wait...**", parse_mode=enums.ParseMode.MARKDOWN)
+    try:
+        deleted_count, chats_count = await clean_all_trash(client)
+        await status_msg.edit_text(
+            f"✅ **Trash Cleanup Completed!**\n\n"
+            f"• **Total Messages Deleted:** `{deleted_count}`\n"
+            f"• **Chats Cleaned:** `{chats_count}`",
+            parse_mode=enums.ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        logger.error(f"Error in /deletetrash: {e}", exc_info=True)
+        await status_msg.edit_text(f"❌ **Error deleting trash:** `{e}`")
+
 
 

@@ -46,10 +46,13 @@ class temp(object):
     COUNT_THRESHOLD1 = None
     COUNT_THRESHOLD2 = None
     COUNT_THRESHOLD3 = None
+    FILTER_DEL_TIME = 300
+    FILE_DEL_TIME = 900
 
 async def load_datas(id: int):
     k = await db.get_loadout(id)
     d = await db.get_autofilter()
+    del_s = await db.get_del_settings()
     temp.REQ_CHANNEL1 = k.get('channel1')
     temp.REQ_CHANNEL2 = k.get('channel2')
     temp.REQ_CHANNEL3 = k.get('channel3')
@@ -60,12 +63,158 @@ async def load_datas(id: int):
     temp.COUNT_THRESHOLD2 = k.get('channel2_threshold')
     temp.COUNT_THRESHOLD3 = k.get('channel3_threshold')
     temp.AUTO_FILTER = d.get('autofilter')
+    temp.FILTER_DEL_TIME = del_s.get('filter_del_time', 300)
+    temp.FILE_DEL_TIME = del_s.get('file_del_time', 900)
     print(f"Loadout for ID {id} has been loaded.")
 
+import time
+
+def format_time_str(seconds: int) -> str:
+    """Formats seconds into human-readable string (e.g. 15 minutes, 30 seconds)."""
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds} second{'s' if seconds != 1 else ''}"
+    minutes = seconds // 60
+    rem_sec = seconds % 60
+    if minutes < 60:
+        res = f"{minutes} minute{'s' if minutes != 1 else ''}"
+        if rem_sec:
+            res += f" {rem_sec} second{'s' if rem_sec != 1 else ''}"
+        return res
+    hours = minutes // 60
+    rem_min = minutes % 60
+    res = f"{hours} hour{'s' if hours != 1 else ''}"
+    if rem_min:
+        res += f" {rem_min} minute{'s' if rem_min != 1 else ''}"
+    return res
+
+def parse_time_to_seconds(time_str: str) -> int:
+    """Parses strings like '300', '5m', '15m', '1h', '30s' to integer seconds."""
+    time_str = str(time_str).strip().lower()
+    if time_str.isdigit():
+        return int(time_str)
+    
+    match = re.match(r"^(\d+)\s*([s|m|h|d])$", time_str)
+    if not match:
+        raise ValueError(f"Invalid time format: {time_str}")
+    val, unit = int(match.group(1)), match.group(2)
+    multiplier = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}
+    return val * multiplier[unit]
+
+async def add_auto_delete_message(chat_id: int, message_id: int, delay_seconds: int = None, msg_type: str = "general", file_id: str = None):
+    if delay_seconds is None:
+        delay_seconds = temp.FILTER_DEL_TIME if msg_type == "filter" else temp.FILE_DEL_TIME
+    delete_at = time.time() + int(delay_seconds)
+    await db.add_to_auto_delete(chat_id, message_id, delete_at, msg_type, file_id=file_id)
+    await db.add_trash_message(chat_id, message_id)
+
+async def track_bot_message(chat_id: int, message_id: int):
+    await db.add_trash_message(chat_id, message_id)
+
+async def delete_messages_loop(client):
+    """
+    Background worker that continuously processes past-due auto delete messages stored in DB.
+    Persists across bot restarts.
+    """
+    logger.info("Auto-delete worker loop started.")
+    while getattr(client, "_is_running", True):
+        try:
+            now = time.time()
+            due_items = await db.get_due_auto_delete_messages(now)
+            if due_items:
+                chat_map = {}
+                file_notices = [] # Stores (chat_id, file_id) for sending notices
+
+                for item in due_items:
+                    cid = item['chat_id']
+                    mid = item['message_id']
+                    if cid not in chat_map:
+                        chat_map[cid] = []
+                    chat_map[cid].append(mid)
+
+                    if item.get("msg_type") == "file" and item.get("file_id"):
+                        file_notices.append((cid, item.get("file_id")))
+
+                for cid, mids in chat_map.items():
+                    for i in range(0, len(mids), 100):
+                        chunk = mids[i:i + 100]
+                        try:
+                            await client.delete_messages(chat_id=cid, message_ids=chunk)
+                        except Exception as e:
+                            logger.debug(f"Error deleting messages in chat {cid}: {e}")
+                        
+                        for mid in chunk:
+                            await db.remove_from_auto_delete(cid, mid)
+                        await db.remove_trash_messages(cid, chunk)
+                        await asyncio.sleep(0.5)
+
+                # Send post-deletion notices for deleted files
+                post_text = (
+                    "⚠️ 🗑️ <b>𝙔𝙤𝙪𝙧 𝙧𝙚𝙦𝙪𝙚𝙨𝙩𝙚𝙙 𝙛𝙞𝙡𝙚 𝙝𝙖𝙨 𝙗𝙚𝙚𝙣 𝙙𝙚𝙡𝙚𝙩𝙚𝙙!</b>\n\n"
+                    "📥 <i>𝘐𝘧 𝘺𝘰𝘶 𝘸𝘢𝘯𝘵 𝘵𝘩𝘦 𝙛𝙞𝙡𝘦, 𝘊𝘭𝘪𝘤𝘬 below button</i>"
+                )
+                for cid, fid in file_notices:
+                    file_id_val = str(fid)
+                    if not (file_id_val.startswith("file_") or file_id_val.startswith("filep_") or file_id_val.startswith("getfile-") or file_id_val.startswith("BATCH-") or file_id_val.startswith("DSTORE-")):
+                        file_id_val = f"file_{file_id_val}"
+                    start_link = f"https://t.me/{temp.U_NAME}?start={file_id_val}"
+                    btn = InlineKeyboardMarkup([[
+                        InlineKeyboardButton("📥 Get File Again", url=start_link)
+                    ]])
+                    try:
+                        sent_notice = await client.send_message(
+                            chat_id=cid,
+                            text=post_text,
+                            reply_markup=btn,
+                            parse_mode=enums.ParseMode.HTML
+                        )
+                        await db.add_trash_message(cid, sent_notice.id)
+                    except Exception as e:
+                        logger.debug(f"Error sending file deletion notice in chat {cid}: {e}")
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in delete_messages_loop: {e}", exc_info=True)
+
+        await asyncio.sleep(5)
+
+async def clean_all_trash(client):
+    """
+    Deletes all messages sent by bot across all chats tracked in trash_messages DB.
+    Used by /deletetrash command and weekly cleanup job.
+    """
+    trash_items = await db.get_all_trash_messages()
+    if not trash_items:
+        return 0, 0
+
+    chat_map = {}
+    for item in trash_items:
+        cid = item['chat_id']
+        mid = item['message_id']
+        if cid not in chat_map:
+            chat_map[cid] = []
+        chat_map[cid].append(mid)
+
+    total_deleted = 0
+    total_chats = len(chat_map)
+
+    for cid, mids in chat_map.items():
+        for i in range(0, len(mids), 100):
+            chunk = mids[i:i + 100]
+            try:
+                await client.delete_messages(chat_id=cid, message_ids=chunk)
+                total_deleted += len(chunk)
+            except Exception as e:
+                logger.debug(f"Error deleting trash messages in chat {cid}: {e}")
+            await asyncio.sleep(0.3)
+
+    await db.delete_all_trash_from_db()
+    return total_deleted, total_chats
 
 class AutoDeleteQueue:
     def __init__(self):
-        self._queue = {} # Stores {chat_id: {message_id: deletion_time}}
+        self._queue = {}
 
     def add_message(self, chat_id: int, message_id: int, deletion_time: datetime):
         if chat_id not in self._queue:
@@ -74,13 +223,10 @@ class AutoDeleteQueue:
         logger.info(f"Added message {message_id} in chat {chat_id} for auto-deletion at {deletion_time}")
 
     def get_messages_to_process(self):
-        """
-        Returns a dictionary of {chat_id: {message_id: deletion_time}} for messages due for deletion.
-        """
         current_time = datetime.now()
         due_messages = {}
-        for chat_id, messages in list(self._queue.items()): # Iterate over a copy
-            for message_id, deletion_time in list(messages.items()): # Iterate over a copy
+        for chat_id, messages in list(self._queue.items()):
+            for message_id, deletion_time in list(messages.items()):
                 if current_time >= deletion_time:
                     if chat_id not in due_messages:
                         due_messages[chat_id] = {}
@@ -88,12 +234,9 @@ class AutoDeleteQueue:
         return due_messages
 
     def remove_message(self, chat_id: int, message_id: int):
-        """
-        Removes a message from the queue.
-        """
         if chat_id in self._queue and message_id in self._queue[chat_id]:
             del self._queue[chat_id][message_id]
-            if not self._queue[chat_id]: # If no messages left in the chat, remove the chat entry
+            if not self._queue[chat_id]:
                 del self._queue[chat_id]
             logger.info(f"Removed message {message_id} from auto-delete queue in chat {chat_id}")
 

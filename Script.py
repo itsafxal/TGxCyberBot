@@ -69,60 +69,60 @@ class script(object):
 <b>⚡ <u>General Commands</u></b>
 • <code>/start</code> - Start the bot or open file link
 • <code>/cmds</code> - View command list & usage
-• <code>/ping</code> - Check bot response speed
-• <code>/id</code> - Get user or chat Telegram ID
-• <code>/info</code> - Get detailed user information
-• <code>/latest</code> - View latest movie releases
-• <code>/request [movie_name]</code> - Request a movie or series
-• <code>/reportbug [desc]</code> - Report a bug to admins
+• <code>/ping</code> - Check bot response speed & server latency
+• <code>/id</code> - Get your Telegram ID or chat ID
+• <code>/info</code> - Get detailed user info (reply or @username)
+• <code>/latest</code> - View latest movie releases by language
+• <code>/request [movie]</code> - Send a movie/series request to admins
+• <code>/reportbug [desc]</code> - Report a bug/issue to admins
 
 <b>📁 <u>File Sharing & Link Store</u></b>
-• <code>/link</code> (reply to media) - Create a public file link
-• <code>/plink</code> (reply to media) - Create a protected file link
-• <code>/batch [link1] [link2]</code> - Create a batch file link
-• <code>/pbatch [link1] [link2]</code> - Create a protected batch link
+• <code>/link</code> (reply to media) - Generate a public file link
+• <code>/plink</code> (reply to media) - Generate a protected file link
+• <code>/batch [link1] [link2]</code> - Generate a batch file link
+• <code>/pbatch [link1] [link2]</code> - Generate a protected batch link
+
+<b>⏱️ <u>Auto-Delete & Trash Management</u></b>
+• <code>/setfiltertime [time]</code> - Set auto-delete time for filter responses (e.g. <code>300</code>, <code>5m</code>)
+• <code>/setfiletime [time]</code> - Set auto-delete time for sent files & warning (e.g. <code>900</code>, <code>15m</code>)
+• <code>/deltimes</code> - View current filter & file auto-delete timer settings
+• <code>/deletetrash</code> - Immediately delete all bot messages across all chats, groups & DMs
 
 <b>👑 <u>Admin & Indexing Commands</u></b>
-• Forward last msg or post link - Start channel indexing
-• <code>/setskip [number]</code> - Set skip offset for indexing
-• <code>/stats</code> - Show bot & database statistics
-• <code>/users</code> - View total bot users
-• <code>/chats</code> - View total connected chats
-• <code>/autofilter [on/off]</code> - Enable or disable auto filter
-• <code>/delete [file_name]</code> - Delete a specific file from DB
+• <code>/index</code> - Start indexing a channel by replying or sending channel ID/link
+• <code>/setskip [number]</code> - Set skip offset count for indexing
+• <code>/stats</code> - View bot & database usage statistics
+• <code>/users</code> - View total registered bot users
+• <code>/chats</code> - View total connected groups/chats
+• <code>/autofilter [on/off]</code> - Enable or disable auto-filter mode
+• <code>/delete</code> (reply to file) - Delete specific file from databases
 • <code>/deletefiles [keyword]</code> - Delete files matching keyword
-• <code>/delete_duplicate</code> - Clean up duplicate media files
-• <code>/deleteall</code> - Delete all indexed files from DB
-• <code>/broadcast</code> (reply to msg) - Broadcast message to all users
-• <code>/update</code> - Restart or update the bot
+• <code>/delete_duplicate</code> - Scan and remove duplicate media files
+• <code>/deleteall</code> - Delete all indexed files from databases
+• <code>/broadcast</code> (reply to msg) - Broadcast message to all bot users
+• <code>/update</code> - Git pull updates & restart bot
 
 <b>🔍 <u>Global Filters</u></b>
-• <code>/gfilter [name] [reply/text]</code> - Add a global filter
+• <code>/gfilter [name] [text/reply]</code> - Add a global filter keyword
 • <code>/gfilters</code> or <code>/viewgfilters</code> - View all active global filters
 • <code>/delg [name]</code> - Delete a specific global filter
 • <code>/delallg</code> - Clear all global filters
 
 <b>📢 <u>Force Subscribe (FSub) Management</u></b>
-• <code>/sub1 [chat_id]</code> - Set Primary FSub Channel 1
-• <code>/sub2 [chat_id]</code> - Set Primary FSub Channel 2
-• <code>/sub3 [chat_id]</code> - Set Primary FSub Channel 3
-• <code>/2sub1 [chat_id]</code> - Set Secondary FSub Channel 1
-• <code>/2sub2 [chat_id]</code> - Set Secondary FSub Channel 2
-• <code>/2sub3 [chat_id]</code> - Set Secondary FSub Channel 3
-• <code>/setcount1 [number]</code> - Set count threshold for FSub 1
-• <code>/setcount2 [number]</code> - Set count threshold for FSub 2
-• <code>/setcount3 [number]</code> - Set count threshold for FSub 3
-• <code>/delsub1</code> / <code>/delsub2</code> / <code>/delsub3</code> - Remove Primary FSub
-• <code>/2delsub1</code> / <code>/2delsub2</code> / <code>/2delsub3</code> - Remove Secondary FSub
-• <code>/view_sub</code> - View all FSub status & counts
+• <code>/sub1 [chat_id]</code> / <code>/sub2</code> / <code>/sub3</code> - Set Primary FSub Channels
+• <code>/2sub1 [chat_id]</code> / <code>/2sub2</code> / <code>/2sub3</code> - Set Secondary FSub Channels
+• <code>/setcount1 [num]</code> / <code>/setcount2</code> / <code>/setcount3</code> - Set FSub user count thresholds
+• <code>/delsub1</code> / <code>/delsub2</code> / <code>/delsub3</code> - Remove Primary FSub channels
+• <code>/2delsub1</code> / <code>/2delsub2</code> / <code>/2delsub3</code> - Remove Secondary FSub channels
+• <code>/view_sub</code> - View active FSub channels and threshold status
 
 <b>🛡️ <u>Moderation & Admin Tools</u></b>
-• <code>/ban [user_id] [reason]</code> - Ban a user from the bot
+• <code>/ban [user_id] [reason]</code> - Ban a user from using the bot
 • <code>/unban [user_id]</code> - Unban a user
-• <code>/disable [chat_id] [reason]</code> - Disable bot in a group
+• <code>/banned</code> - View list of banned users & chats
+• <code>/disable [chat_id] [reason]</code> - Disable bot in a specific group
 • <code>/enable [chat_id]</code> - Re-enable bot in a group
-• <code>/leave [chat_id]</code> - Force bot to leave a group
-• <code>/invite [chat_id]</code> - Generate invite link for a group"""
+• <code>/leave [chat_id]</code> - Force bot to leave a group"""
     
     MAIN_RESULT_TXT = """𝗛𝗘𝗬 <emoji id='5413694143601842851'>👋</emoji> {cyber} <emoji id='5397890811436213746'>🫶</emoji>
     

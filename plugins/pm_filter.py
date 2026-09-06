@@ -983,17 +983,19 @@ async def reply_with_spell_check_suggestions(message, cyber, search):
             ])
             
             spell_text = script.SPELL_CHECK_TXT.format(cyber=cyber, search=search)
-            await message.reply_text(
+            reply_msg = await message.reply_text(
                 text=spell_text,
                 reply_markup=InlineKeyboardMarkup(btn),
                 parse_mode=enums.ParseMode.HTML
             )
+            await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
         else:
-            await message.reply(
+            reply_msg = await message.reply(
                 f"Hᴇʏ {cyber} 💫,\n"
                 f"Nᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n"
                 f"➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴇsᴇᴅ.✨"
             )
+            await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
     except FloodWait as e:
         logger.warning(f"FloodWait in reply_with_spell_check_suggestions: {e.value}s")
         await asyncio.sleep(e.value)
@@ -1020,20 +1022,22 @@ async def auto_filter(client, message):
     btn = generate_main_buttons(files, offset=0, search_key=search_key, next_offset=offset)
     
     try:
-        await message.reply_text(
+        reply_msg = await message.reply_text(
             text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
+        await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
     except FloodWait as e:
         logger.warning(f"FloodWait in auto_filter: {e.value}s")
         await asyncio.sleep(e.value)
         try:
-            await message.reply_text(
+            reply_msg = await message.reply_text(
                 text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
                 reply_markup=InlineKeyboardMarkup(btn),
                 parse_mode=enums.ParseMode.HTML
             )
+            await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
         except Exception as ex:
             logger.error(f"Error retrying auto_filter reply: {ex}")
     except Exception as e:
@@ -1061,20 +1065,22 @@ async def pm_auto_filter(client, message):
     btn = generate_main_buttons(files, offset=0, search_key=search_key, next_offset=offset)
  
     try:
-        await message.reply_text(
+        reply_msg = await message.reply_text(
             text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
             parse_mode=enums.ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(btn),
         )
+        await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
     except FloodWait as e:
         logger.warning(f"FloodWait in pm_auto_filter: {e.value}s")
         await asyncio.sleep(e.value)
         try:
-            await message.reply_text(
+            reply_msg = await message.reply_text(
                 text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
                 parse_mode=enums.ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(btn),
             )
+            await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
         except Exception as ex:
             logger.error(f"Error retrying pm_auto_filter reply: {ex}")
     except Exception as e:
@@ -1105,9 +1111,11 @@ async def global_filters(client, message):
             markup = InlineKeyboardMarkup(button_data) if button_data else None
 
         if fileid == "None":
-            await client.send_message(message.chat.id, reply_text, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True))
+            sent = await client.send_message(message.chat.id, reply_text, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True))
         else:
-            await client.send_cached_media(message.chat.id, fileid, caption=reply_text or "", reply_markup=markup)
+            sent = await client.send_cached_media(message.chat.id, fileid, caption=reply_text or "", reply_markup=markup)
+        if sent:
+            await add_auto_delete_message(message.chat.id, sent.id, temp.FILTER_DEL_TIME, msg_type="filter")
         return True
     except Exception as e:
         logger.exception(f"Error processing global filter response: {e}")

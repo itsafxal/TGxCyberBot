@@ -16,6 +16,9 @@ class Database:
         self.chat_col2 = self.db.chatcol2
         self.adm = self.db.admins
         self.admn = self.db.admin
+        self.auto_del_col = self.db.auto_delete_queue
+        self.trash_col = self.db.trash_messages
+        self.settings_col = self.db.settings
 
     def new_user(self, id, name):
         return dict(
@@ -246,5 +249,79 @@ class Database:
 
     async def update_cout(self, key: str, value: int):
         await self.adm.update_many({}, {'$set': {f"{key}_threshold": value}})
+
+    async def get_del_settings(self):
+        data = await self.settings_col.find_one({'id': 'del_settings'})
+        if not data:
+            data = {
+                'id': 'del_settings',
+                'filter_del_time': 300,
+                'file_del_time': 900
+            }
+            await self.settings_col.insert_one(data)
+        return data
+
+    async def update_filter_del_time(self, seconds: int):
+        await self.settings_col.update_one(
+            {'id': 'del_settings'},
+            {'$set': {'filter_del_time': int(seconds)}},
+            upsert=True
+        )
+
+    async def update_file_del_time(self, seconds: int):
+        await self.settings_col.update_one(
+            {'id': 'del_settings'},
+            {'$set': {'file_del_time': int(seconds)}},
+            upsert=True
+        )
+
+    async def add_to_auto_delete(self, chat_id: int, message_id: int, delete_at: float, msg_type: str = "general", file_id: str = None):
+        doc = {
+            'chat_id': int(chat_id),
+            'message_id': int(message_id),
+            'delete_at': float(delete_at),
+            'msg_type': msg_type
+        }
+        if file_id:
+            doc['file_id'] = str(file_id)
+        await self.auto_del_col.update_one(
+            {'chat_id': int(chat_id), 'message_id': int(message_id)},
+            {'$set': doc},
+            upsert=True
+        )
+
+    async def get_due_auto_delete_messages(self, current_time: float):
+        cursor = self.auto_del_col.find({'delete_at': {'$lte': float(current_time)}})
+        return await cursor.to_list(length=None)
+
+    async def remove_from_auto_delete(self, chat_id: int, message_id: int):
+        await self.auto_del_col.delete_one({'chat_id': int(chat_id), 'message_id': int(message_id)})
+
+    async def add_trash_message(self, chat_id: int, message_id: int):
+        doc = {
+            'chat_id': int(chat_id),
+            'message_id': int(message_id)
+        }
+        await self.trash_col.update_one(
+            {'chat_id': int(chat_id), 'message_id': int(message_id)},
+            {'$set': doc},
+            upsert=True
+        )
+
+    async def get_all_trash_messages(self):
+        cursor = self.trash_col.find({})
+        return await cursor.to_list(length=None)
+
+    async def remove_trash_messages(self, chat_id: int, message_ids: list):
+        if not message_ids:
+            return
+        await self.trash_col.delete_many({
+            'chat_id': int(chat_id),
+            'message_id': {'$in': [int(m) for m in message_ids]}
+        })
+
+    async def delete_all_trash_from_db(self):
+        await self.trash_col.delete_many({})
+        await self.auto_del_col.delete_many({})
 
 db = Database(DATABASE_URI, DATABASE_NAME)

@@ -25,8 +25,30 @@ from pyrogram.handlers.handler import Handler
 from pyrogram.raw.all import layer as pyrogram_layer
 from database.users_chats_db import db
 from info import SESSION, API_ID, API_HASH, BOT_TOKEN, LOG_STR, REQ_CHANNEL1, REQ_CHANNEL2, LOG_CHANNEL, OWNER_ID
-from utils import temp, load_datas, delete_messages_loop
+from utils import temp, load_datas, delete_messages_loop, clean_all_trash
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+async def weekly_trash_cleanup_job(client):
+    try:
+        logger.info("Starting weekly automatic trash cleanup...")
+        deleted_count, chats_count = await clean_all_trash(client)
+        msg = (
+            "🗑️ **Weekly Automatic Trash Cleanup Completed!**\n\n"
+            f"• **Total Messages Deleted:** `{deleted_count}`\n"
+            f"• **Chats Cleaned:** `{chats_count}`"
+        )
+        if OWNER_ID:
+            try:
+                await client.send_message(chat_id=int(OWNER_ID), text=msg)
+            except Exception as e:
+                logger.error(f"Failed to notify OWNER_ID of weekly cleanup: {e}")
+        if LOG_CHANNEL:
+            try:
+                await client.send_message(chat_id=int(LOG_CHANNEL), text=msg)
+            except Exception as e:
+                logger.error(f"Failed to notify LOG_CHANNEL of weekly cleanup: {e}")
+    except Exception as e:
+        logger.error(f"Error during weekly trash cleanup: {e}", exc_info=True)
 
 # Fix for minimum chat/channel IDs
 pyroutils.MIN_CHAT_ID = -999999999999
@@ -217,6 +239,16 @@ class Bot(Client):
             # Start background tasks
             asyncio.create_task(self.safe_loop(delete_messages_loop(self)), name="delete_messages_loop_task")
             asyncio.create_task(self.resource_monitor(), name="resource_monitor")
+            self.schedule.add_job(
+                weekly_trash_cleanup_job,
+                trigger='cron',
+                day_of_week='sun',
+                hour=0,
+                minute=0,
+                args=[self],
+                id='weekly_trash_cleanup',
+                replace_existing=True
+            )
 
             # Database initialization and migration check
             try:
