@@ -564,6 +564,7 @@ async def fetch_messages_chunk(client: Client, chat_id: int | str, message_ids_c
         try:
             LOGGER.debug(f"Fetching chunk: Chat {chat_id}, IDs {message_ids_chunk[0]}-{message_ids_chunk[-1]} ({len(message_ids_chunk)} messages)")
             fetched_messages = await client.get_messages(chat_id, message_ids_chunk)
+            await asyncio.sleep(0.5)
             valid_messages = [m for m in fetched_messages if m is not None]
             LOGGER.debug(f"Fetched {len(valid_messages)} valid messages for chunk {message_ids_chunk[0]}-{message_ids_chunk[-1]}")
             return valid_messages
@@ -573,6 +574,7 @@ async def fetch_messages_chunk(client: Client, chat_id: int | str, message_ids_c
             try:
                 LOGGER.info(f"Retrying fetch for chunk {message_ids_chunk[0]}-{message_ids_chunk[-1]} after FloodWait.")
                 fetched_messages = await client.get_messages(chat_id, message_ids_chunk)
+                await asyncio.sleep(0.5)
                 return [m for m in fetched_messages if m is not None]
             except Exception as retry_e:
                 LOGGER.error(f"Error on retry fetching chunk {message_ids_chunk[0]}-{message_ids_chunk[-1]}: {retry_e}", exc_info=True)
@@ -615,7 +617,7 @@ async def index_files_to_db(client: Client, progress_message: Message, chat_id: 
         message_ids_to_fetch_range = range(start_message_id_for_range, last_message_id+1)
         total_messages_in_range_count = len(message_ids_to_fetch_range)
 
-        fetching_semaphore = asyncio.Semaphore(3)
+        fetching_semaphore = asyncio.Semaphore(2)
         last_ui_update_time = time.time()
         BATCH_CHUNK_STEP = 500
 
