@@ -146,7 +146,7 @@ async def delete_unwanted_messages(client, message):
     if user_id in ADMINS: return # ignore admins
 
     # Skip deleting if message is forwarded from a channel/chat or contains an indexing link
-    if message.forward_from_chat:
+    if getattr(message, "forward_origin", None) or getattr(message, "forward_date", None):
         return
     text_content = message.text or message.caption or ""
     if re.search(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)", text_content):

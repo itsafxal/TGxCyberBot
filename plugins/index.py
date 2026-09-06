@@ -401,16 +401,41 @@ async def index_files_callback(bot: Client, query: Message):
         LOGGER.error(f"Invalid action for index callback: {action}")
         await query.answer("🚫 Unknown action. Please try again or contact support.", show_alert=True)
 
+def get_forwarded_channel_info(msg: Message):
+    """Safely extracts (chat_id, last_msg_id) from a forwarded channel message without Pyrogram deprecation warnings."""
+    if not msg:
+        return None, None
+
+    # Modern Pyrogram v2 MessageOrigin check
+    forward_origin = getattr(msg, "forward_origin", None)
+    if forward_origin:
+        origin_type = getattr(forward_origin, "type", None)
+        if origin_type == enums.MessageOriginType.CHANNEL:
+            chat = getattr(forward_origin, "chat", None)
+            msg_id = getattr(forward_origin, "message_id", None)
+            if chat and msg_id:
+                chat_id = chat.username or chat.id
+                return chat_id, msg_id
+
+    # Fallback for legacy Pyrogram properties
+    try:
+        forward_chat = getattr(msg, "forward_from_chat", None)
+        forward_msg_id = getattr(msg, "forward_from_message_id", None)
+        if forward_chat and forward_chat.type == enums.ChatType.CHANNEL and forward_msg_id:
+            chat_id = forward_chat.username or forward_chat.id
+            return chat_id, forward_msg_id
+    except Exception:
+        pass
+
+    return None, None
+
 @Client.on_message(filters.incoming & (filters.command('index') | (filters.private & (filters.forwarded | filters.regex(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)")))))
 async def send_for_index(bot: Client, message: Message):
     chat_id = None
     last_msg_id = None
 
     target_msg = message.reply_to_message or message
-
-    if target_msg.forward_from_chat and target_msg.forward_from_chat.type == enums.ChatType.CHANNEL:
-        last_msg_id = target_msg.forward_from_message_id
-        chat_id = target_msg.forward_from_chat.username or target_msg.forward_from_chat.id
+    chat_id, last_msg_id = get_forwarded_channel_info(target_msg)
 
     if not chat_id or not last_msg_id:
         text_content = f"{message.text or ''} {message.caption or ''} {target_msg.text or ''} {target_msg.caption or ''}"
@@ -590,7 +615,7 @@ async def index_files_to_db(client: Client, progress_message: Message, chat_id: 
         message_ids_to_fetch_range = range(start_message_id_for_range, last_message_id+1)
         total_messages_in_range_count = len(message_ids_to_fetch_range)
 
-        fetching_semaphore = asyncio.Semaphore(10)
+        fetching_semaphore = asyncio.Semaphore(3)
         last_ui_update_time = time.time()
         BATCH_CHUNK_STEP = 500
 
@@ -646,6 +671,7 @@ async def index_files_to_db(client: Client, progress_message: Message, chat_id: 
                             total_messages_scanned_in_channel if total_messages_scanned_in_channel > 0 else last_message_id,
                             min_id_in_chunk
                         )
+                        await asyncio.sleep(0.1)
 
                 now = time.time()
                 if now - last_ui_update_time >= 3.0 or i + BATCH_CHUNK_STEP >= total_messages_in_range_count:
