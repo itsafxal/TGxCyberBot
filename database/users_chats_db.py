@@ -19,8 +19,8 @@ class Database:
 
     def new_user(self, id, name):
         return dict(
-            id = id,
-            name = name,
+            id = int(id),
+            name = name or "User",
             ban_status=dict(
                 is_banned=False,
                 ban_reason="",
@@ -30,21 +30,33 @@ class Database:
 
     def new_group(self, id, title):
         return dict(
-            id = id,
-            title = title,
+            id = int(id),
+            title = title or "Group",
             chat_status=dict(
                 is_disabled=False,
                 reason="",
             ),
         )
     
-    async def add_user(self, id, name):
-        user = self.new_user(id, name)
-        await self.col.insert_one(user)
+    async def add_user(self, id, name=None):
+        if not id:
+            return
+        id_int = int(id)
+        if not await self.is_user_exist(id_int):
+            user = self.new_user(id_int, name or "User")
+            try:
+                await self.col.insert_one(user)
+            except Exception as e:
+                pass
     
     async def is_user_exist(self, id):
-        user = await self.col.find_one({'id':int(id)})
-        return bool(user)
+        if not id:
+            return False
+        try:
+            user = await self.col.find_one({'id': int(id)})
+            return bool(user)
+        except Exception:
+            return False
     
     async def total_users_count(self):
         count = await self.col.count_documents({})

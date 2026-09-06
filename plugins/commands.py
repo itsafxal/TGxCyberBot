@@ -23,21 +23,30 @@ logger = logging.getLogger(__name__)
 DELETE_TXT = "📁 𝗪𝗮𝗿𝗻𝗶𝗻𝗴 ⚠️\n\n<blockquote>Please note that this movie file will be deleted in 15 minutes to avoid Copyright. To keep it, forward it to a friend or save it to your personal space.</blockquote>"
 
 async def send_log_report(client, user, item, report_type):
-    """Sends a formatted report (bug/request) to the log channel."""
+    """Sends a formatted report (bug/request) directly to ADMINS in bot DM."""
     header = "#BugReport" if report_type == "bug" else "#Request"
     item_label = "Description" if report_type == "bug" else "Requested Item"
 
-    user_info = f"**User:** {user.mention}\n**User ID:** `{user.id}`"
+    user_mention = user.mention if user else "Unknown"
+    user_id = user.id if user else "Unknown"
+    user_info = f"**User:** {user_mention}\n**User ID:** `{user_id}`"
     report_message = f"{header}\n\n**{item_label}:** {item}\n\n{user_info}"
 
-    if LOG_CHANNEL:
+    sent = False
+    for admin in ADMINS:
+        try:
+            await client.send_message(chat_id=admin, text=report_message)
+            sent = True
+        except Exception as e:
+            logger.error(f"Failed to send {report_type} to admin {admin} DM: {e}")
+
+    if not sent and LOG_CHANNEL:
         try:
             await client.send_message(chat_id=LOG_CHANNEL, text=report_message)
-            return True
+            sent = True
         except Exception as e:
             logger.error(f"Failed to send {report_type} to log channel: {e}")
-            return False
-    return True
+    return sent
 
 async def auto_delete_message(message, delay_seconds):
     """Deletes a message after a specified delay."""
@@ -113,32 +122,24 @@ async def start(client, message):
         await message.reply(script.START_TXT.format(message.from_user.mention if user_id else message.chat.title, temp.B_NAME), reply_markup=reply_markup)
         if not await db.get_chat(chat_id):
             total = await client.get_chat_members_count(chat_id)
-            if LOG_CHANNEL:
-                await client.send_message(LOG_CHANNEL, script.LOG_TEXT_G.format(message.chat.title, chat_id, total, "Unknown"))
+            group_log = script.LOG_TEXT_G.format(message.chat.title, chat_id, total, "Unknown")
+            for admin in ADMINS:
+                try:
+                    await client.send_message(admin, group_log)
+                except Exception:
+                    pass
             await db.add_chat(chat_id, message.chat.title)
         return
 
     if user_id and not await db.is_user_exist(user_id):
-        await db.add_user(user_id, message.from_user.first_name)
+        name = message.from_user.first_name if (message.from_user and message.from_user.first_name) else "User"
+        await db.add_user(user_id, name)
 
-    username = message.from_user.username or "No Username"
+    username = message.from_user.username or "No Username" if message.from_user else "No Username"
     if not temp.B_NAME:
         me = await client.get_me()
         temp.B_NAME = me.username
     bot_username = temp.B_NAME
-
-    if LOG_CHANNEL:
-        await client.send_message(
-            LOG_CHANNEL,
-            script.LOG_TEXT_P.format(
-                message.from_user.first_name,           # {0} Name
-                message.from_user.first_name,           # {1} Full Name (first)
-                message.from_user.last_name or "",      # {2} Full Name (last)
-                user_id,                                # {3} ID
-                username,                               # {4} Username
-                bot_username                            # {5} Bot
-            )
-        )
 
     if len(message.command) != 2:
         buttons = [[
@@ -559,7 +560,8 @@ async def deletemultiplefiles(bot, message):
     try:
         keyword = message.text.split(None, 1)[1]
     except IndexError:
-        return await message.reply_text(f"<b>Hᴇʏ {message.from_user.mention}, Gɪᴠᴇ ᴍᴇ ᴀ ᴋᴇʏᴡᴏʀᴅ ᴀʟᴏɴɢ ᴡɪᴛʜ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ ᴛᴏ ᴅᴇʟᴇᴛᴇ ғɪʟᴇs.</b>")
+        mention = message.from_user.mention if message.from_user else "Admin"
+        return await message.reply_text(f"<b>Hᴇʏ {mention}, Gɪᴠᴇ ᴍᴇ ᴀ ᴋᴇʏᴡᴏʀᴅ ᴀʟᴏɴɢ ᴡɪᴛʜ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ ᴛᴏ ᴅᴇʟᴇᴛᴇ ғɪʟᴇs.</b>")
     btn = [[InlineKeyboardButton("Yᴇs, Cᴏɴᴛɪɴᴜᴇ !", callback_data=f"killfilesdq#{keyword}")],
            [InlineKeyboardButton("Nᴏ, Aʙᴏʀᴛ ᴏᴘᴇʀᴀᴛɪᴏɴ !", callback_data="close_data")]]
     await message.reply_text(

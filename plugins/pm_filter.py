@@ -98,32 +98,56 @@ def get_file_caption(file_info):
 @Client.on_message(filters.text & filters.incoming & filters.group & filters.regex(r'^(?!\/).*'))
 async def auto_filter_handler(client, message):
     """Main handler for group messages, checking global filters then auto filters."""
+    if not message.from_user:
+        return
     logger.debug(f"[auto_filter_handler] user={message.from_user.id} chat={message.chat.id} text={message.text!r}")
     if not temp.AUTO_FILTER: return
-    if not await global_filters(client, message):
-        await auto_filter(client, message)
+    try:
+        if not await global_filters(client, message):
+            await auto_filter(client, message)
+    except FloodWait as e:
+        logger.warning(f"FloodWait in auto_filter_handler: {e.value}s")
+    except Exception as e:
+        logger.error(f"Error in auto_filter_handler: {e}")
 
 @Client.on_message(filters.private & filters.text & filters.incoming & filters.regex(r'^(?!\/).*') & ~filters.forwarded)
 async def auto_filter_pm_handler(client, message):
     """Handles non-command messages in private chat."""
+    if not message.from_user:
+        return
+    if not await db.is_user_exist(message.from_user.id):
+        await db.add_user(message.from_user.id, message.from_user.first_name or "User")
     logger.debug(f"[auto_filter_pm_handler] user={message.from_user.id} text={message.text!r}")
     if not temp.AUTO_FILTER: 
         return
     if re.search(r'(?im)(?:https?://|www\.|t\.me/|telegram\.dog/)\S+|@[a-z0-9_]{5,32}\b', message.text):
-        await message.delete()
+        try:
+            await message.delete()
+        except Exception:
+            pass
         return
-    if not await global_filters(client, message):
-        await pm_auto_filter(client, message)
-        
+    try:
+        if not await global_filters(client, message):
+            await pm_auto_filter(client, message)
+    except FloodWait as e:
+        logger.warning(f"FloodWait in auto_filter_pm_handler: {e.value}s")
+    except Exception as e:
+        logger.error(f"Error in auto_filter_pm_handler: {e}")
+
 @Client.on_message(
     (filters.forwarded | filters.document | filters.photo | filters.video | 
      filters.audio | filters.voice | filters.video_note | 
      filters.sticker | filters.animation) & filters.private
 )
 async def delete_unwanted_messages(client, message):
+    if not message.from_user:
+        return
     user_id = message.from_user.id
     if user_id in ADMINS: return # ignore admins
-    await message.delete()
+    try:
+        await message.delete()
+    except Exception:
+        pass
     
 # --- Callback Handlers ---
 @Client.on_callback_query(filters.regex(r"^next"))
@@ -899,68 +923,78 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
 
 async def reply_with_spell_check_suggestions(message, cyber, search):
     """Replies with fast spell check suggestions from SQLite DB when no search results are found."""
+    if not message.from_user:
+        return
     suggestions = await get_suggestions_sql(search)
-    if suggestions:
-        search_key = f"{message.from_user.id}_{message.id}"
-        SEARCH_CACHE.set(f"spell_{search_key}", suggestions)
-        
-        btn = []
-        i = 0
-        while i < len(suggestions):
-            s1 = suggestions[i]
-            if len(s1) > 24 or (i + 1 < len(suggestions) and len(suggestions[i+1]) > 24):
-                btn.append([
-                    InlineKeyboardButton(
-                        text=f"🎬 {s1}",
-                        callback_data=f"sp#{search_key}#{i}",
-                        style=ButtonStyle.DEFAULT
-                    )
-                ])
-                i += 1
-            else:
-                row = [
-                    InlineKeyboardButton(
-                        text=f"🎬 {s1}",
-                        callback_data=f"sp#{search_key}#{i}",
-                        style=ButtonStyle.DEFAULT
-                    )
-                ]
-                if i + 1 < len(suggestions):
-                    s2 = suggestions[i + 1]
-                    row.append(
+    try:
+        if suggestions:
+            search_key = f"{message.from_user.id}_{message.id}"
+            SEARCH_CACHE.set(f"spell_{search_key}", suggestions)
+            
+            btn = []
+            i = 0
+            while i < len(suggestions):
+                s1 = suggestions[i]
+                if len(s1) > 24 or (i + 1 < len(suggestions) and len(suggestions[i+1]) > 24):
+                    btn.append([
                         InlineKeyboardButton(
-                            text=f"🎬 {s2}",
-                            callback_data=f"sp#{search_key}#{i+1}",
+                            text=f"🎬 {s1}",
+                            callback_data=f"sp#{search_key}#{i}",
                             style=ButtonStyle.DEFAULT
                         )
-                    )
-                    i += 2
-                else:
+                    ])
                     i += 1
-                btn.append(row)
-                
-        btn.append([
-            InlineKeyboardButton(
-                "❌ Cʟᴏsᴇ",
-                callback_data="close_data",
-                style=ButtonStyle.DEFAULT
+                else:
+                    row = [
+                        InlineKeyboardButton(
+                            text=f"🎬 {s1}",
+                            callback_data=f"sp#{search_key}#{i}",
+                            style=ButtonStyle.DEFAULT
+                        )
+                    ]
+                    if i + 1 < len(suggestions):
+                        s2 = suggestions[i + 1]
+                        row.append(
+                            InlineKeyboardButton(
+                                text=f"🎬 {s2}",
+                                callback_data=f"sp#{search_key}#{i+1}",
+                                style=ButtonStyle.DEFAULT
+                            )
+                        )
+                        i += 2
+                    else:
+                        i += 1
+                    btn.append(row)
+                    
+            btn.append([
+                InlineKeyboardButton(
+                    "❌ Cʟᴏsᴇ",
+                    callback_data="close_data",
+                    style=ButtonStyle.DEFAULT
+                )
+            ])
+            
+            spell_text = script.SPELL_CHECK_TXT.format(cyber=cyber, search=search)
+            await message.reply_text(
+                text=spell_text,
+                reply_markup=InlineKeyboardMarkup(btn),
+                parse_mode=enums.ParseMode.HTML
             )
-        ])
-        
-        spell_text = script.SPELL_CHECK_TXT.format(cyber=cyber, search=search)
-        await message.reply_text(
-            text=spell_text,
-            reply_markup=InlineKeyboardMarkup(btn),
-            parse_mode=enums.ParseMode.HTML
-        )
-    else:
-        await message.reply(
-            f"Hᴇʏ {cyber} 💫,\n"
-            f"Nᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n"
-            f"➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴇsᴇᴅ.✨"
-        )
+        else:
+            await message.reply(
+                f"Hᴇʏ {cyber} 💫,\n"
+                f"Nᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n"
+                f"➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴇsᴇᴅ.✨"
+            )
+    except FloodWait as e:
+        logger.warning(f"FloodWait in reply_with_spell_check_suggestions: {e.value}s")
+        await asyncio.sleep(e.value)
+    except Exception as e:
+        logger.error(f"Error in reply_with_spell_check_suggestions: {e}")
 
 async def auto_filter(client, message):
+    if not message.from_user:
+        return
     cyber = message.from_user.mention
     search = message.text
     logger.debug(f"[auto_filter] user={message.from_user.id} search={search!r}")
@@ -977,15 +1011,31 @@ async def auto_filter(client, message):
     search_key = f"{message.from_user.id}_{message.id}"
     btn = generate_main_buttons(files, offset=0, search_key=search_key, next_offset=offset)
     
-    await message.reply_text(
-        text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
-        reply_markup=InlineKeyboardMarkup(btn),
-        parse_mode=enums.ParseMode.HTML
-    )
+    try:
+        await message.reply_text(
+            text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+    except FloodWait as e:
+        logger.warning(f"FloodWait in auto_filter: {e.value}s")
+        await asyncio.sleep(e.value)
+        try:
+            await message.reply_text(
+                text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
+                reply_markup=InlineKeyboardMarkup(btn),
+                parse_mode=enums.ParseMode.HTML
+            )
+        except Exception as ex:
+            logger.error(f"Error retrying auto_filter reply: {ex}")
+    except Exception as e:
+        logger.error(f"Error in auto_filter: {e}")
 
     SEARCH_CACHE.set(search_key, search)
 
 async def pm_auto_filter(client, message):
+    if not message.from_user:
+        return
     cyber = message.from_user.mention
     search = message.text
     logger.debug(f"[pm_auto_filter] user={message.from_user.id} search={search!r}")
@@ -1002,11 +1052,25 @@ async def pm_auto_filter(client, message):
     search_key = f"{message.from_user.id}_{message.id}"
     btn = generate_main_buttons(files, offset=0, search_key=search_key, next_offset=offset)
  
-    await message.reply_text(
-        text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
-        parse_mode=enums.ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(btn),
-    )
+    try:
+        await message.reply_text(
+            text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
+            parse_mode=enums.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(btn),
+        )
+    except FloodWait as e:
+        logger.warning(f"FloodWait in pm_auto_filter: {e.value}s")
+        await asyncio.sleep(e.value)
+        try:
+            await message.reply_text(
+                text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
+                parse_mode=enums.ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(btn),
+            )
+        except Exception as ex:
+            logger.error(f"Error retrying pm_auto_filter reply: {ex}")
+    except Exception as e:
+        logger.error(f"Error in pm_auto_filter: {e}")
 
     SEARCH_CACHE.set(search_key, search)
     

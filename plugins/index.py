@@ -440,7 +440,7 @@ async def send_for_index(bot: Client, message: Message):
     if k.empty:
         return await message.reply('🔍 Message Not Found: The specified message ID is invalid, or I do not have sufficient permissions (e.g., read messages) in the channel/group.', parse_mode=enums.ParseMode.MARKDOWN)
 
-    if message.from_user.id in ADMINS:
+    if message.from_user and message.from_user.id in ADMINS:
         buttons = [
             [
                 InlineKeyboardButton('💾 Index to DB1', callback_data=f'index#accept1#{chat_id}#{last_msg_id}#{message.from_user.id}'),
@@ -485,17 +485,28 @@ async def send_for_index(bot: Client, message: Message):
         ]
         reply_markup = InlineKeyboardMarkup(buttons)
 
-        # Admin notification message
+        # Admin notification message in bot DM
+        user_mention = message.from_user.mention if message.from_user else "User"
+        user_id_str = message.from_user.id if message.from_user else "Unknown"
+        notification_text = (
+            f'🚨 **New Indexing Request** 🚨\n\n'
+            f'**Initiated By:** {user_mention} (ID: `{user_id_str}`)\n'
+            f'**Target Chat:** `{chat_id}`\n'
+            f'**Last Message ID:** `{last_msg_id}`\n'
+            f'**Invite Link:** {invite_link}\n\n'
+            f'Please review and decide:'
+        )
+        for admin in ADMINS:
+            try:
+                await bot.send_message(admin, notification_text, reply_markup=reply_markup, parse_mode=enums.ParseMode.MARKDOWN)
+            except Exception as e:
+                LOGGER.error(f"Failed to send indexing request to admin {admin} DM: {e}")
+
         if LOG_CHANNEL:
-            await bot.send_message(LOG_CHANNEL,
-                                   f'🚨 **New Indexing Request** 🚨\n\n'
-                                   f'**Initiated By:** {message.from_user.mention} (ID: `{message.from_user.id}`)\n'
-                                   f'**Target Chat:** `{chat_id}`\n'
-                                   f'**Last Message ID:** `{last_msg_id}`\n'
-                                   f'**Invite Link:** {invite_link}\n\n'
-                                   f'Please review and decide:',
-                                   reply_markup=reply_markup,
-                                   parse_mode=enums.ParseMode.MARKDOWN)
+            try:
+                await bot.send_message(LOG_CHANNEL, notification_text, reply_markup=reply_markup, parse_mode=enums.ParseMode.MARKDOWN)
+            except Exception:
+                pass
         
         # User confirmation message
         await message.reply('🌟 **Request Submitted!** 🌟\n\n'

@@ -208,6 +208,8 @@ async def check_loop_sub_dynamic(client, message, file_id: str = None, prompt_ms
     Periodically checks user subscription status in background loop,
     updating prompt_msg reply_markup dynamically as user joins channels.
     """
+    if not message.from_user:
+        return False
     user_id = message.from_user.id
     count = 0
     while count < 15:
@@ -231,6 +233,8 @@ async def check_loop_sub_dynamic(client, message, file_id: str = None, prompt_ms
 
 
 async def is_requested_one(self , message):
+    if not message.from_user:
+        return False
     user = await db.get_req_one(int(message.from_user.id))
     if user:
         return True
@@ -251,6 +255,8 @@ async def is_requested_one(self , message):
     return False
     
 async def is_requested_two(self, message):
+    if not message.from_user:
+        return False
     user = await db.get_req_two(int(message.from_user.id))
     if user:
         return True
@@ -271,6 +277,8 @@ async def is_requested_two(self, message):
     return False
 
 async def is_requested_three(self, message):
+    if not message.from_user:
+        return False
     user = await db.get_req_three(int(message.from_user.id))
     if user:
         return True
@@ -329,7 +337,7 @@ def get_file_id(msg: Message):
 def extract_user(message: Message) -> Tuple[Union[int, str], str]:
     user_id = None
     first_name = None
-    if message.reply_to_message:
+    if message.reply_to_message and message.reply_to_message.from_user:
         user_id = message.reply_to_message.from_user.id
         first_name = message.reply_to_message.from_user.first_name
     elif message.command and len(message.command) > 1:
@@ -345,7 +353,7 @@ def extract_user(message: Message) -> Tuple[Union[int, str], str]:
             except ValueError:
                 user_id = arg
                 first_name = arg
-    else:
+    elif message.from_user:
         user_id = message.from_user.id
         first_name = message.from_user.first_name
     return user_id, first_name
