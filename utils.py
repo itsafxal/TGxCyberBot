@@ -610,35 +610,6 @@ def humanbytes(size: int) -> str:
         n += 1
     return f"{size:.2f} {units.get(n, 'P')}B"
 
-async def add_auto_delete_message(message_id: int, chat_id: int, delay_minutes: int = 5):
-    """
-    Adds a message to the auto-delete queue.
-    :param message_id: The ID of the message to delete.
-    :param chat_id: The chat ID where the message was sent.
-    :param delay_minutes: The delay in minutes before deletion.
-    """
-    deletion_time = datetime.now() + timedelta(seconds=delay_minutes)
-    auto_delete_queue.add_message(chat_id, message_id, deletion_time)
-
-
-async def delete_messages_loop(client):
-    """
-    Continuously checks for messages to delete from the auto-delete queue.
-    """
-    while True:
-        messages_to_delete = auto_delete_queue.get_messages_to_process()
-        for chat_id, messages in messages_to_delete.items():
-            for message_id, deletion_time in messages.items():
-                try:
-                    await client.delete_messages(chat_id=chat_id, message_ids=message_id)
-                    logger.info(f"Deleted message {message_id} from chat {chat_id}")
-                except Exception as e:
-                    logger.warning(f"Failed to delete message {message_id} in chat {chat_id}: {e}")
-                finally:
-                    # Remove the message from the queue regardless of success or failure
-                    auto_delete_queue.remove_message(chat_id, message_id)
-        await asyncio.sleep(60) # Check every 60 seconds (adjust as needed)
-
 def premium_emoji(text, emoji_map):
     entities = []
 
