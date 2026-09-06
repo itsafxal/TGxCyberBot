@@ -154,22 +154,13 @@ async def announce_new_movie(bot, media):
     getfile_slug = f"getfile-{slug_title}-{first_lang}"
     search_url = f"https://t.me/{bot_username}?start={getfile_slug}"
 
-    caption_text = script.AUTO_ANNOUNCEMENT_TXT.format(
-        title=metadata["title"],
-        year=metadata["year"],
-        languages=languages_str,
-        genres=metadata["genres"],
-        rating=metadata["rating"],
-        description=metadata["description"],
-        bot_username=bot_username
-    )
+    caption_text = script.AUTO_ANNOUNCEMENT_TXT.format(file_name=clean_name)
 
     stream_url = await resolve_tmdb_stream_url(file_name=clean_name)
 
     reply_markup = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📥 Get Movie", url=search_url),
-            InlineKeyboardButton("🔍 Search in Bot", url=search_url)
+            InlineKeyboardButton("📥 Get Movie", url=search_url)
         ],
         [
             InlineKeyboardButton("🖥️ Watch Online on Website", url=stream_url)

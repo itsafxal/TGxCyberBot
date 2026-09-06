@@ -14,6 +14,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from info import DATABASE_URI2, DATABASE_NAME, DATABASE_URI3, COLLECTION_NAME, MAX_FILES, BOT_TOKEN
 from database.ia_filterdb import unpack_new_file_id
 from utils import get_size
+from search_engine import SearchEngine, QueryNormalizer
 
 # --- Configuration ---
 logger = logging.getLogger(__name__)
@@ -613,26 +614,11 @@ SUGGESTION_CACHE = {}
 MAX_SUGGESTION_CACHE_SIZE = 1000
 
 def clean_file_name_for_title(file_name: str) -> str:
-    """Cleans raw file name into a clean movie/series title."""
-    if not file_name:
-        return ""
-    # Strip file extension
-    title = re.sub(r'\.(mkv|mp4|avi|webm|flv|mov|m4v|3gp|zip|rar|tar|gz|7z)$', '', file_name, flags=re.IGNORECASE)
-    # Remove Season/Episode tags
-    title = re.sub(r'\[?(?:S\d{1,2}|Season\s*\d{1,2})(?:[\s._-]*?(?:EP?\d{1,2}|Episode\s*\d{1,2}))?\]?', '', title, flags=re.IGNORECASE)
-    # Remove quality / resolution / codec / year / language tags
-    pattern = r'(?i)\b(1080p|720p|480p|360p|2160p|4k|hdr|webrip|web-dl|web|bluray|hdrip|dvdrip|x264|x265|hevc|h264|esub|msub|sub|hindi|malayalam|tamil|telugu|kannada|english|multi|dual|aac|dd5\.1|atmos|19\d\d|20\d\d)\b'
-    title = re.sub(pattern, '', title)
-    # Remove website / telegram channel tags e.g. @channel
-    title = re.sub(r'@[a-zA-Z0-9_]+', '', title)
-    # Replace symbols with spaces
-    title = re.sub(r'[\._\-\[\(\]\)]+', ' ', title)
-    # Remove extra spaces
-    title = re.sub(r'\s+', ' ', title).strip()
-    return title
+    """Cleans raw file name into a clean movie/series title using QueryNormalizer."""
+    return QueryNormalizer.clean_release_name(file_name)
 
-async def get_suggestions_sql(search_query: str, limit: int = 8, min_accuracy: float = 0.80) -> List[str]:
-    """Generates spell check suggestions from SQLite media table + IMDb with 80% accuracy filter."""
+async def get_suggestions_sql(search_query: str, limit: int = 5, min_accuracy: float = 0.80) -> List[str]:
+    """Generates high-precision spell check suggestions from SQLite media table using SearchEngine."""
     if not search_query or len(search_query.strip()) < 2:
         return []
 
@@ -640,78 +626,12 @@ async def get_suggestions_sql(search_query: str, limit: int = 8, min_accuracy: f
     if cache_key in SUGGESTION_CACHE:
         return SUGGESTION_CACHE[cache_key]
 
-    raw_words = [w for w in re.findall(r'\w+', search_query.lower()) if len(w) >= 2]
-    if not raw_words:
-        return []
-
-    # Fetch candidates asynchronously from IMDb and SQLite in parallel
-    imdb_task = asyncio.create_task(fetch_imdb_titles(search_query))
-
-    sql_rows = []
     try:
         db = await ensure_aiosqlite_connection()
-        where_clauses = []
-        params = []
-        for word in raw_words:
-            where_clauses.append("file_name LIKE ?")
-            params.append(f"%{word}%")
-            if len(word) >= 4:
-                prefix = word[:3]
-                where_clauses.append("file_name LIKE ?")
-                params.append(f"%{prefix}%")
-
-        where_stmt = " OR ".join(where_clauses)
-        query = f"SELECT DISTINCT file_name FROM media WHERE {where_stmt} LIMIT 300"
-        async with db.execute(query, tuple(params)) as cursor:
-            sql_rows = await cursor.fetchall()
+        top_suggestions = await SearchEngine.get_suggestions_sql(db, search_query, limit=limit)
     except Exception as e:
-        logger.error(f"Error fetching SQLite suggestion candidates: {e}")
-
-    if not sql_rows:
-        try:
-            db = await ensure_aiosqlite_connection()
-            async with db.execute("SELECT DISTINCT file_name FROM media ORDER BY date_saved DESC LIMIT 200") as cursor:
-                sql_rows = await cursor.fetchall()
-        except Exception:
-            sql_rows = []
-
-    imdb_titles = []
-    try:
-        imdb_titles = await imdb_task
-    except Exception as e:
-        logger.debug(f"IMDb task error: {e}")
-
-    candidates_map = {}
-
-    # Add IMDb candidates
-    for title in imdb_titles:
-        if not title or len(title) < 2:
-            continue
-        score = compute_accuracy_score(search_query, title)
-        if score >= min_accuracy or score >= 0.60:
-            candidates_map[title] = max(candidates_map.get(title, 0), score)
-
-    # Add SQLite candidates
-    for row in sql_rows:
-        fn = row[0]
-        if not fn:
-            continue
-        clean_t = clean_file_name_for_title(fn)
-        if not clean_t or len(clean_t) < 2:
-            continue
-
-        score = compute_accuracy_score(search_query, clean_t)
-        if score >= min_accuracy or score >= 0.60:
-            candidates_map[clean_t] = max(candidates_map.get(clean_t, 0), score)
-
-    # Filter with min_accuracy (0.80) first
-    accurate_candidates = {k: v for k, v in candidates_map.items() if v >= min_accuracy}
-
-    # Fallback to score >= 0.60 if no candidate reaches 80% accuracy threshold
-    final_candidates = accurate_candidates if accurate_candidates else candidates_map
-
-    sorted_suggestions = sorted(final_candidates.keys(), key=lambda k: final_candidates[k], reverse=True)
-    top_suggestions = sorted_suggestions[:limit]
+        logger.error(f"Error generating suggestions with SearchEngine: {e}")
+        top_suggestions = []
 
     if len(SUGGESTION_CACHE) > MAX_SUGGESTION_CACHE_SIZE:
         SUGGESTION_CACHE.clear()

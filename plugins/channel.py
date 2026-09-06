@@ -61,17 +61,14 @@ async def auto_post_new_file(bot, media):
         bot_username = temp.U_NAME or (await bot.get_me()).username
         search_link = f"https://t.me/{bot_username}?start={getfile_param}"
 
-        post_text = script.LATEST_POST_TXT.format(
-            channel=f"@{bot_username}",
-            title=clean_title,
-            languages=languages_str,
-            imdb_url=f"https://www.imdb.com/find/?q={clean_title.replace(' ', '+')}",
-            genres="Action, Drama, Thriller",
-            ott="OTT Release"
-        )
+        from utils import resolve_tmdb_stream_url
+        stream_url = await resolve_tmdb_stream_url(file_name=file_name)
+
+        post_text = f"🎬 <b>{file_name}</b>"
 
         reply_markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Click to Search 🔍", url=search_link)]
+            [InlineKeyboardButton("📥 Get Movie", url=search_link)],
+            [InlineKeyboardButton("🖥️ Watch Online on Website", url=stream_url)]
         ])
 
         await bot.send_message(

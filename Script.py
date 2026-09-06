@@ -134,20 +134,12 @@ class script(object):
 ©ᶜʸᵇᵉʳᵗᵍ <emoji id='5456140674028019486'>🗡️</emoji>"""
 
     SPELL_CHECK_TXT = """Hᴇʏ {cyber} 💫,
-Nᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ <code>{search}</code>.
+🔎 <b>Nᴏ ᴇxᴀᴄᴛ ʀᴇsᴜʟᴛ ғᴏᴜɴᴅ ғᴏʀ:</b>
+<code>{search}</code>
 
-<b> Dɪᴅ ʏᴏᴜ ᴍᴇᴀɴ ᴏɴᴇ ᴏғ ᴛʜᴇsᴇ? 👇</b>"""
+✨ <b>Cʟᴏsᴇsᴛ ᴍᴀᴛᴄʜᴇs:</b>"""
 
-    AUTO_ANNOUNCEMENT_TXT = """🎬 <b>{title}</b>
-📅 <b>Year:</b> {year}
-🌍 <b>Language:</b> {languages}
-🎭 <b>Genre:</b> {genres}
-⭐ <b>Rating:</b> {rating}
-
-📝 <b>Description:</b>
-<i>{description}</i>
-
-© @{bot_username}"""
+    AUTO_ANNOUNCEMENT_TXT = """🎬 <b>{file_name}</b>"""
 
 
 
