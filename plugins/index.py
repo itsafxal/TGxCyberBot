@@ -401,16 +401,19 @@ async def index_files_callback(bot: Client, query: Message):
         LOGGER.error(f"Invalid action for index callback: {action}")
         await query.answer("🚫 Unknown action. Please try again or contact support.", show_alert=True)
 
-@Client.on_message(filters.private & filters.incoming & (filters.forwarded | filters.regex(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)")))
+@Client.on_message(filters.incoming & (filters.command('index') | (filters.private & (filters.forwarded | filters.regex(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)")))))
 async def send_for_index(bot: Client, message: Message):
     chat_id = None
     last_msg_id = None
 
-    if message.forward_from_chat and message.forward_from_chat.type == enums.ChatType.CHANNEL:
-        last_msg_id = message.forward_from_message_id
-        chat_id = message.forward_from_chat.username or message.forward_from_chat.id
-    else:
-        text_content = message.text or message.caption or ""
+    target_msg = message.reply_to_message or message
+
+    if target_msg.forward_from_chat and target_msg.forward_from_chat.type == enums.ChatType.CHANNEL:
+        last_msg_id = target_msg.forward_from_message_id
+        chat_id = target_msg.forward_from_chat.username or target_msg.forward_from_chat.id
+
+    if not chat_id or not last_msg_id:
+        text_content = f"{message.text or ''} {message.caption or ''} {target_msg.text or ''} {target_msg.caption or ''}"
         regex = re.compile(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?([a-zA-Z0-9_]+)/(\d+)")
         match = regex.search(text_content)
         if match:
@@ -421,8 +424,9 @@ async def send_for_index(bot: Client, message: Message):
                 chat_id = int(f"-100{chat_id_str}")
             else:
                 chat_id = chat_id_str
-        else:
-            return await message.reply("💡 To initiate indexing, please forward the **last message** from the desired channel/group, or provide a **valid Telegram message link**.", parse_mode=enums.ParseMode.MARKDOWN)
+
+    if not chat_id or not last_msg_id:
+        return await message.reply("💡 To initiate indexing, please forward the **last message** from the desired channel/group, reply to a forwarded message with **/index**, or provide a **valid Telegram message link** (e.g., `https://t.me/channel_username/123`).", parse_mode=enums.ParseMode.MARKDOWN)
 
     try:
         chat_info = await bot.get_chat(chat_id)
