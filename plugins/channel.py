@@ -29,57 +29,9 @@ YEAR_PATTERN = r"\b\d{4}\b"
 LANGUAGES = r"(?i)\b(tamil|tam|hindi|hin|telugu|tel|malayalam|mal|kannada|kan|english|eng)\b"
 
 async def auto_post_new_file(bot, media):
-    """Automatically posts a formatted Latest Release post to LOG_CHANNEL or target channel when a new file is added."""
-    target_chat = LOG_CHANNEL
-    if not target_chat:
-        return
-
-    try:
-        raw_name = getattr(media, 'caption', None) or getattr(media, 'file_name', '')
-        file_name = re.sub(r"📂 Fɪʟᴇ ɴᴀᴍᴇ :", "", str(raw_name)).strip()
-
-        from sql.db import clean_file_name_for_title
-        clean_title = clean_file_name_for_title(file_name)
-        if not clean_title:
-            clean_title = file_name
-
-        lang_matches = re.findall(LANGUAGES, file_name)
-        if lang_matches:
-            langs_list = []
-            for l in lang_matches:
-                l_cap = l.capitalize()
-                if l_cap not in langs_list:
-                    langs_list.append(l_cap)
-            languages_str = ", ".join(langs_list)
-        else:
-            languages_str = "Malayalam, Tamil, Telugu"
-
-        first_lang = lang_matches[0].lower() if lang_matches else "multi"
-        title_slug = re.sub(r'[\s._-]+', '-', clean_title).strip('-')
-        getfile_param = f"getfile-{title_slug}-{first_lang}"
-
-        bot_username = temp.U_NAME or (await bot.get_me()).username
-        search_link = f"https://t.me/{bot_username}?start={getfile_param}"
-
-        from utils import resolve_tmdb_stream_url
-        stream_url = await resolve_tmdb_stream_url(file_name=file_name)
-
-        post_text = f"🎬 <b>{file_name}</b>"
-
-        reply_markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📥 Get Movie", url=search_link)],
-            [InlineKeyboardButton("🖥️ Watch Online on Website", url=stream_url)]
-        ])
-
-        await bot.send_message(
-            chat_id=target_chat,
-            text=post_text,
-            reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.HTML,
-            link_preview_options=LinkPreviewOptions(is_disabled=True)
-        )
-    except Exception as e:
-        logging.error(f"Error in auto_post_new_file: {e}")
+    """Delegates to announce_new_movie for consolidated auto-channel posting."""
+    from database.announcement import announce_new_movie
+    await announce_new_movie(bot, media)
 
 async def get_all_movies(col):
     movies = col.find().sort("_id", -1)
