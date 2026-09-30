@@ -8,12 +8,13 @@ from pyrogram.errors import ChatAdminRequired, FloodWait
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ChatJoinRequest, Message, LinkPreviewOptions
 from pyrogram.errors.exceptions.bad_request_400 import MessageTooLong, PeerIdInvalid
 from database.users_chats_db import db
-from utils import temp
+from utils import temp, MEMBERSHIP_CACHE
 
 @Client.on_chat_join_request()
 async def join_reqs(bot, join_req: ChatJoinRequest):
     user_id = join_req.from_user.id
     try:
+        MEMBERSHIP_CACHE.set(user_id, join_req.chat.id, True)
         if join_req.chat.id == temp.REQ_CHANNEL1:
             user = await db.get_req_one(user_id)
             if not user:

@@ -20,11 +20,16 @@ from database.ia_filterdb import get_file_details, Media2, Media3, db as clientD
 from database.gfilters_mdb import find_gfilter, get_gfilters
 from info import ADMINS, CUSTOM_FILE_CAPTION, AUTO_DEL, MAX_FILES
 from sql.db import get_search_results, delete_file_sql, get_suggestions_sql
-from utils import get_size, temp, is_requested_one, is_requested_two, add_auto_delete_message, premium_emoji, get_stream_buttons, get_stream_buttons_async, build_dynamic_fsub_keyboard
+from utils import (
+    get_size, temp, is_requested_one, is_requested_two, add_auto_delete_message,
+    premium_emoji, get_stream_buttons, get_stream_buttons_async, build_dynamic_fsub_keyboard,
+    safe_delete_message, safe_edit_message_text, safe_edit_reply_markup, safe_answer_callback,
+    IN_FLIGHT_CALLBACKS, PerfTracker, GLOBAL_METRICS, format_time_str
+)
 
 # --- Configuration ---
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 DELETE_TXT = "🗑️ _This message and the file will be deleted in {} seconds._".format(AUTO_DEL)
 GLOBAL_FILTER_CACHE = {}
@@ -121,10 +126,7 @@ async def auto_filter_pm_handler(client, message):
     if not temp.AUTO_FILTER: 
         return
     if re.search(r'(?im)(?:https?://|www\.|t\.me/|telegram\.dog/)\S+|@[a-z0-9_]{5,32}\b', message.text):
-        try:
-            await message.delete()
-        except Exception:
-            pass
+        await safe_delete_message(message)
         return
     try:
         if not await global_filters(client, message):
@@ -152,62 +154,70 @@ async def delete_unwanted_messages(client, message):
     if re.search(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)", text_content):
         return
 
-    try:
-        await message.delete()
-    except Exception:
-        pass
+    await safe_delete_message(message)
     
 # --- Callback Handlers ---
 @Client.on_callback_query(filters.regex(r"^next"))
 async def next_page_cb(bot, query):
-    logger.debug(f"[next_page_cb] user={query.from_user.id} data={query.data}")
-    try:
-        _, search_key, offset_str = query.data.split("|")
-        offset = int(offset_str)
-    except ValueError:
-        logger.warning(f"[next_page_cb] Invalid pagination data: {query.data}")
-        return await query.answer("Iɴᴠᴀʟɪᴅ ᴘᴀɢɪɴᴀᴛɪᴏɴ ᴅᴀᴛᴀ.", show_alert=True)
-    
-    cyber = query.from_user.mention
-    req = SEARCH_CACHE.get(search_key)
-
-    if not req:
-        await query.answer("🔁 Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ Pʟᴇᴀsᴇ Sᴇᴀʀᴄʜ Aɢᴀɪɴ 😇", show_alert=True)
+    user_id = query.from_user.id
+    msg_id = getattr(query.message, "id", query.id)
+    lock_key = (user_id, msg_id, "pagination")
+    if not IN_FLIGHT_CALLBACKS.acquire(lock_key):
+        await safe_answer_callback(query, "⏳ Loading...", show_alert=False)
         return
 
-    requested_user_id = int(search_key.split("_")[0])
-    if query.from_user.id != requested_user_id:
-        return await query.answer("✋ Tʜɪs ɪs ɴᴏᴛ ғᴏʀ ʏᴏᴜ! Pʟᴇᴀsᴇ ᴍᴀᴋᴇ ʏᴏᴜʀ ᴏᴡɴ sᴇᴀʀᴄʜ.", show_alert=True)
-
-    files, next_offset = await get_search_results(req, offset=offset)
-
-    if not files:
-        return await query.answer("🚫Nᴏ ᴍᴏʀᴇ ʀᴇsᴜʟᴛs ғᴏᴜɴᴅ 🚫", show_alert=True)
-
-    btn = generate_main_buttons(files, offset, search_key, next_offset=next_offset)
-
+    tracker = PerfTracker(action="pagination", user_id=user_id, query=query.data)
     try:
-        current_page = (offset // MAX_FILES) + 1
-        await query.edit_message_text(
-            text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=req, page=current_page),
-            reply_markup=InlineKeyboardMarkup(btn)
-        )
-    except MessageNotModified:
-        pass
-    except FloodWait as e:
-        logger.warning(f"FloodWait in next_page_cb: {e.value}s")
+        logger.debug(f"[next_page_cb] user={user_id} data={query.data}")
         try:
-            await query.answer(f"⚠️ Please wait {e.value} seconds before clicking again.", show_alert=True)
+            _, search_key, offset_str = query.data.split("|")
+            offset = int(offset_str)
+        except ValueError:
+            logger.warning(f"[next_page_cb] Invalid pagination data: {query.data}")
+            await safe_answer_callback(query, "Iɴᴠᴀʟɪᴅ ᴘᴀɢɪɴᴀᴛɪᴏɴ ᴅᴀᴛᴀ.", show_alert=True)
+            return
+        
+        cyber = query.from_user.mention
+        req = SEARCH_CACHE.get(search_key)
+
+        if not req:
+            await safe_answer_callback(query, "🔁 Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ Pʟᴇᴀsᴇ Sᴇᴀʀᴄʜ Aɢᴀɪɴ 😇", show_alert=True)
+            return
+
+        try:
+            requested_user_id = int(search_key.split("_")[0])
+            if user_id != requested_user_id:
+                await safe_answer_callback(query, "✋ Tʜɪs ɪs ɴᴏᴛ ғᴏʀ ʏᴏᴜ! Pʟᴇᴀsᴇ ᴍᴀᴋᴇ ʏᴏᴜʀ ᴏᴡɴ sᴇᴀʀᴄʜ.", show_alert=True)
+                return
         except Exception:
             pass
-    except (QueryIdInvalid, MessageIdInvalid):
-        pass
-    except Exception as e:
-        logger.error(f"Error in next_page_cb: {e}")
-    try:
-        await query.answer()
-    except Exception:
-        pass
+
+        t0 = time.time()
+        files, next_offset = await get_search_results(req, offset=offset)
+        tracker.db_ms = (time.time() - t0) * 1000
+
+        if not files:
+            await safe_answer_callback(query, "🚫Nᴏ ᴍᴏʀᴇ ʀᴇsᴜʟᴛs ғᴏᴜɴᴅ 🚫", show_alert=True)
+            return
+
+        btn = generate_main_buttons(files, offset, search_key, next_offset=next_offset)
+        current_page = (offset // MAX_FILES) + 1
+        new_text = script.MAIN_RESULT_TXT.format(cyber=cyber, search=req, page=current_page)
+
+        t1 = time.time()
+        await safe_edit_message_text(
+            query,
+            text=new_text,
+            reply_markup=InlineKeyboardMarkup(btn)
+        )
+        tracker.telegram_ms = (time.time() - t1) * 1000
+        tracker.edit_count = 1
+        tracker.telegram_calls = 1
+
+        await safe_answer_callback(query)
+    finally:
+        IN_FLIGHT_CALLBACKS.release(lock_key)
+        tracker.log()
 
 
 def generate_main_buttons(files, offset, search_key, next_offset=0):
@@ -281,14 +291,10 @@ def get_all_language_codes():
 def get_language_name_from_code(lang_code):
     """Returns the full language name from its code."""
     try:
-        inverted_languages = {v.lower(): k for k, v in LANGUAGES.items()}
-        return inverted_languages.get(lang_code.lower(), lang_code.upper()).capitalize()
+        inv_map = {v.lower(): k for k, v in LANGUAGES.items()}
+        return inv_map.get(str(lang_code).lower(), str(lang_code).title())
     except Exception:
-        return lang_code.upper()
-        
-def get_all_quality_codes():
-    """Returns a list of all quality codes in lowercase."""
-    return [q.lower() for q in QUALITIES]
+        return str(lang_code).title()
 
 # ---------------------------
 # Language Feature Handlers
@@ -297,153 +303,154 @@ def get_all_quality_codes():
 @Client.on_callback_query(filters.regex(r"^languages#"))
 async def languages_cb_handler(client: Client, query: CallbackQuery):
     """Displays the list of available language filters."""
-    logger.debug(f"[languages_cb_handler] user={query.from_user.id} data={query.data}")
-    try:
-        _, search_key = query.data.split("#")
-    except ValueError:
-        return await query.answer("Iɴᴠᴀʟɪᴅ ᴄᴀʟʟʙᴀᴄᴋ ᴅᴀᴛᴀ sᴛʀᴜᴄᴛᴜʀᴇ.", show_alert=True)
-
-    requested_user_id = int(search_key.split("_")[0])
-    if query.from_user.id != requested_user_id:
-        return await query.answer(
-            f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
-            show_alert=True,
-        )
-
-    if not SEARCH_CACHE.get(search_key):
-        return await query.answer("Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ. 🔰", show_alert=True)
-
-    items = list(LANGUAGES.items())
-    btn = []
-
-    # Create language buttons, 2 per row
-    for i in range(0, len(items), 2):
-        name1, code1 = items[i]
-        row = [InlineKeyboardButton(
-            text=name1, 
-            callback_data=f"fl#{code1.lower()}#{search_key}",
-            style=ButtonStyle.DEFAULT,
-            icon_custom_emoji_id=5888584382553265934
-        )]
-        if i + 1 < len(items):
-            name2, code2 = items[i + 1]
-            row.append(InlineKeyboardButton(
-                text=name2, 
-                callback_data=f"fl#{code2.lower()}#{search_key}",
-                style=ButtonStyle.DEFAULT,
-                icon_custom_emoji_id=5888584382553265934
-            ))
-        btn.append(row)
-
-    btn.insert(0, [InlineKeyboardButton(
-        text="⇊ ꜱᴇʟᴇᴄᴛ ʟᴀɴɢᴜᴀɢᴇ ⇊",
-        callback_data="ident",
-        style=ButtonStyle.DEFAULT,
-        icon_custom_emoji_id=5215354932598350357
-    )])
-            
-    btn.append([InlineKeyboardButton(
-        text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭",
-        callback_data=f"next|{search_key}|0",
-        style=ButtonStyle.SUCCESS,
-        icon_custom_emoji_id=5210912043019822307
-    )])
+    user_id = query.from_user.id
+    msg_id = getattr(query.message, "id", query.id)
+    lock_key = (user_id, msg_id, "languages")
+    if not IN_FLIGHT_CALLBACKS.acquire(lock_key):
+        await safe_answer_callback(query, "⏳ Loading...", show_alert=False)
+        return
 
     try:
-        await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
-    except MessageNotModified:
-        pass
-    except FloodWait as e:
-        logger.warning(f"FloodWait in languages_cb_handler: {e.value}s")
+        logger.debug(f"[languages_cb_handler] user={user_id} data={query.data}")
         try:
-            await query.answer(f"⚠️ Please wait {e.value} seconds before clicking again.", show_alert=True)
+            _, search_key = query.data.split("#")
+        except ValueError:
+            return await safe_answer_callback(query, "Iɴᴠᴀʟɪᴅ ᴄᴀʟʟʙᴀᴄᴋ ᴅᴀᴛᴀ sᴛʀᴜᴄᴛᴜʀᴇ.", show_alert=True)
+
+        try:
+            requested_user_id = int(search_key.split("_")[0])
+            if user_id != requested_user_id:
+                return await safe_answer_callback(
+                    query,
+                    f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
+                    show_alert=True,
+                )
         except Exception:
             pass
-    except (QueryIdInvalid, MessageIdInvalid):
-        pass
-    except Exception as e:
-        logger.error(f"Error in languages_cb_handler: {e}")
-    try:
-        await query.answer()
-    except Exception:
-        pass
+
+        if not SEARCH_CACHE.get(search_key):
+            return await safe_answer_callback(query, "Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ. 🔰", show_alert=True)
+
+        items = list(LANGUAGES.items())
+        btn = []
+
+        # Create language buttons, 2 per row
+        for i in range(0, len(items), 2):
+            name1, code1 = items[i]
+            row = [InlineKeyboardButton(
+                text=name1, 
+                callback_data=f"fl#{code1.lower()}#{search_key}",
+                style=ButtonStyle.DEFAULT,
+                icon_custom_emoji_id=5888584382553265934
+            )]
+            if i + 1 < len(items):
+                name2, code2 = items[i + 1]
+                row.append(InlineKeyboardButton(
+                    text=name2, 
+                    callback_data=f"fl#{code2.lower()}#{search_key}",
+                    style=ButtonStyle.DEFAULT,
+                    icon_custom_emoji_id=5888584382553265934
+                ))
+            btn.append(row)
+
+        btn.insert(0, [InlineKeyboardButton(
+            text="⇊ ꜱᴇʟᴇᴄᴛ ʟᴀɴɢᴜᴀɢᴇ ⇊",
+            callback_data="ident",
+            style=ButtonStyle.DEFAULT,
+            icon_custom_emoji_id=5215354932598350357
+        )])
+                
+        btn.append([InlineKeyboardButton(
+            text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭",
+            callback_data=f"next|{search_key}|0",
+            style=ButtonStyle.SUCCESS,
+            icon_custom_emoji_id=5210912043019822307
+        )])
+
+        await safe_edit_reply_markup(query, reply_markup=InlineKeyboardMarkup(btn))
+        await safe_answer_callback(query)
+    finally:
+        IN_FLIGHT_CALLBACKS.release(lock_key)
         
 @Client.on_callback_query(filters.regex(r"^fl#"))
 async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
     """Handles the application of a language filter."""
+    user_id = query.from_user.id
+    msg_id = getattr(query.message, "id", query.id)
+    lock_key = (user_id, msg_id, "filter_lang")
+    if not IN_FLIGHT_CALLBACKS.acquire(lock_key):
+        await safe_answer_callback(query, "⏳ Filtering...", show_alert=False)
+        return
+
+    tracker = PerfTracker(action="filter_lang", user_id=user_id, query=query.data)
     try:
-        _, lang_code, search_key = query.data.split("#")
-    except ValueError:
-        return await query.answer("Iɴᴠᴀʟɪᴅ ʟᴀɴɢᴜᴀɢᴇ ғɪʟᴛᴇʀ ᴅᴀᴛᴀ.", show_alert=True)
+        try:
+            _, lang_code, search_key = query.data.split("#")
+        except ValueError:
+            return await safe_answer_callback(query, "Iɴᴠᴀʟɪᴅ ʟᴀɴɢᴜᴀɢᴇ ғɪʟᴛᴇʀ ᴅᴀᴛᴀ.", show_alert=True)
 
-    original_search_query = SEARCH_CACHE.get(search_key)
+        original_search_query = SEARCH_CACHE.get(search_key)
+        if not original_search_query:
+            return await safe_answer_callback(query, "Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ. 🔰", show_alert=True)
 
-    if not original_search_query:
-        return await query.answer("Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ. 🔰", show_alert=True)
+        try:
+            requested_user_id = int(search_key.split("_")[0])
+            if user_id != requested_user_id:
+                return await safe_answer_callback(
+                    query,
+                    f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
+                    show_alert=True,
+                )
+        except Exception:
+            pass
 
-    requested_user_id = int(search_key.split("_")[0])
-    if query.from_user.id != requested_user_id:
-        return await query.answer(
-            f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
-            show_alert=True,
-        )
+        lower_lang_code = lang_code.lower()
+        search_words = original_search_query.lower().split()
+        all_language_codes = get_all_language_codes()
 
-    lower_lang_code = lang_code.lower()
-    search_words = original_search_query.lower().split()
-    all_language_codes = get_all_language_codes()
-
-    base_query_words = [word for word in search_words if word not in all_language_codes]
-    
-    if lower_lang_code in search_words:
-        new_filtered_search = " ".join(base_query_words)
-        selected_language_name = get_language_name_from_code(lower_lang_code)
-        alert_message_success = f"❌ Lᴀɴɢᴜᴀɢᴇ ғɪʟᴛᴇʀ ʀᴇᴍᴏᴠᴇᴅ: {selected_language_name} Sᴜᴄᴄᴇsғᴜʟʟʏ✅"
-    else:
-        base_query_words.append(lower_lang_code)
-        new_filtered_search = " ".join(base_query_words)
-        selected_language_name = get_language_name_from_code(lower_lang_code)
-        alert_message_success = f"Yᴏᴜʀ ғɪʟᴇs ᴀʀᴇ ɴᴏᴡ ғɪʟᴛᴇʀᴇᴅ ᴛᴏ: {selected_language_name} Sᴜᴄᴄᴇsғᴜʟʟʏ✅ "
-    
-    try:
+        base_query_words = [word for word in search_words if word not in all_language_codes]
+        
+        if lower_lang_code in search_words:
+            new_filtered_search = " ".join(base_query_words)
+            selected_language_name = get_language_name_from_code(lower_lang_code)
+            alert_message_success = f"❌ Lᴀɴɢᴜᴀɢᴇ ғɪʟᴛᴇʀ ʀᴇᴍᴏᴠᴇᴅ: {selected_language_name} Sᴜᴄᴄᴇsғᴜʟʟʏ✅"
+        else:
+            base_query_words.append(lower_lang_code)
+            new_filtered_search = " ".join(base_query_words)
+            selected_language_name = get_language_name_from_code(lower_lang_code)
+            alert_message_success = f"Yᴏᴜʀ ғɪʟᴇs ᴀʀᴇ ɴᴏᴡ ғɪʟᴛᴇʀᴇᴅ ᴛᴏ: {selected_language_name} Sᴜᴄᴄᴇsғᴜʟʟʏ✅ "
+        
+        t0 = time.time()
         files, offset = await get_search_results(new_filtered_search, offset=0)
+        tracker.db_ms = (time.time() - t0) * 1000
         
         if not files:
             files_revert, offset_revert = await get_search_results(original_search_query, offset=0)
             revert_btn = generate_main_buttons(files_revert, offset_revert, search_key)
             
             selected_language_name = get_language_name_from_code(lower_lang_code)
-            await query.answer(
+            await safe_answer_callback(
+                query,
                 f"🚫 Nᴏ Fɪʟᴇ Fᴏᴜɴᴅ Wɪᴛʜ Tʜɪs Lᴀɴɢᴜᴀɢᴇ {selected_language_name}. Bᴀᴄᴋ ᴛᴏ ᴏʀɪɢɪɴᴀʟ sᴇᴀʀᴄʜ ʀᴇsᴜʟᴛs.", 
                 show_alert=True
             )
 
-            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(revert_btn))
+            await safe_edit_reply_markup(query, reply_markup=InlineKeyboardMarkup(revert_btn))
             return
 
         SEARCH_CACHE.set(search_key, new_filtered_search)
         btn = generate_main_buttons(files, offset, search_key)
 
-        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
-        await query.answer(alert_message_success, show_alert=True)    
+        t1 = time.time()
+        await safe_edit_reply_markup(query, reply_markup=InlineKeyboardMarkup(btn))
+        tracker.telegram_ms = (time.time() - t1) * 1000
+        tracker.edit_count = 1
+        tracker.telegram_calls = 1
 
-    except MessageNotModified:
-        try:
-            await query.answer(alert_message_success, show_alert=True)
-        except Exception:
-            pass
-    except FloodWait as e:
-        logger.warning(f"FloodWait in filter_languages_cb_handler: {e.value}s")
-        try:
-            await query.answer(f"⚠️ Please wait {e.value} seconds before clicking again.", show_alert=True)
-        except Exception:
-            pass
-    except (QueryIdInvalid, MessageIdInvalid):
-        pass
-    except Exception as e:
-        try:
-            await query.answer("Aɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴅᴜʀɪɴɢ ʟᴀɴɢᴜᴀɢᴇ sᴇᴀʀᴄʜ.", show_alert=True)
-        except Exception:
-            pass
+        await safe_answer_callback(query, alert_message_success, show_alert=True)
+    finally:
+        IN_FLIGHT_CALLBACKS.release(lock_key)
+        tracker.log()
 
 # ---------------------------
 # Quality Feature Handlers
@@ -452,308 +459,301 @@ async def filter_languages_cb_handler(client: Client, query: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^qualities#"))
 async def qualities_cb_handler(client: Client, query: CallbackQuery):
     """Displays the list of available quality filters."""
-    logger.debug(f"[qualities_cb_handler] user={query.from_user.id} data={query.data}")
-    try:
-        _, search_key = query.data.split("#")
-    except ValueError:
-        return await query.answer("Iɴᴠᴀʟɪᴅ ᴄᴀʟʟʙᴀᴄᴋ ᴅᴀᴛᴀ sᴛʀᴜᴄᴛᴜʀᴇ.", show_alert=True)
-
-    original_search_query = SEARCH_CACHE.get(search_key)
-    if not original_search_query:
-        return await query.answer("Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ. 🔰", show_alert=True)
-
-    requested_user_id = int(search_key.split("_")[0])
-    if query.from_user.id != requested_user_id:
-        return await query.answer(
-            f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\n"
-            f"ᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
-            show_alert=True,
-        )
-
-    btn = []
-    
-    # Create quality buttons, 2 per row
-    for i in range(0, len(QUALITIES), 2):
-        q1 = QUALITIES[i]
-        row = [InlineKeyboardButton(
-            text=q1,
-            callback_data=f"fq#{q1.lower()}#{search_key}",
-            style=ButtonStyle.DEFAULT,
-            icon_custom_emoji_id=5802910664150226061
-        )]
-        if i + 1 < len(QUALITIES):
-            q2 = QUALITIES[i + 1]
-            row.append(InlineKeyboardButton(
-                text=q2,
-                callback_data=f"fq#{q2.lower()}#{search_key}",
-                style=ButtonStyle.DEFAULT,
-                icon_custom_emoji_id=5802910664150226061
-            ))
-        btn.append(row)
-
-    btn.insert(0, [
-        InlineKeyboardButton(
-            text="⇊ ꜱᴇʟᴇᴄᴛ ǫᴜᴀʟɪᴛʏ ⇊",
-            callback_data="ident",
-            style=ButtonStyle.DEFAULT,
-            icon_custom_emoji_id=5215354932598350357
-        )
-    ])
-
-    btn.append([
-        InlineKeyboardButton(
-            text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭",
-            callback_data=f"next|{search_key}|0",
-            style=ButtonStyle.SUCCESS,
-            icon_custom_emoji_id=5210912043019822307
-        )
-    ])
+    user_id = query.from_user.id
+    msg_id = getattr(query.message, "id", query.id)
+    lock_key = (user_id, msg_id, "qualities")
+    if not IN_FLIGHT_CALLBACKS.acquire(lock_key):
+        await safe_answer_callback(query, "⏳ Loading...", show_alert=False)
+        return
 
     try:
-        await query.edit_message_reply_markup(InlineKeyboardMarkup(btn))
-    except MessageNotModified:
-        pass
-    except FloodWait as e:
-        logger.warning(f"FloodWait in qualities_cb_handler: {e.value}s")
+        logger.debug(f"[qualities_cb_handler] user={user_id} data={query.data}")
         try:
-            await query.answer(f"⚠️ Please wait {e.value} seconds before clicking again.", show_alert=True)
+            _, search_key = query.data.split("#")
+        except ValueError:
+            return await safe_answer_callback(query, "Iɴᴠᴀʟɪᴅ ᴄᴀʟʟʙᴀᴄᴋ ᴅᴀᴛᴀ sᴛʀᴜᴄᴛᴜʀᴇ.", show_alert=True)
+
+        original_search_query = SEARCH_CACHE.get(search_key)
+        if not original_search_query:
+            return await safe_answer_callback(query, "Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ. 🔰", show_alert=True)
+
+        try:
+            requested_user_id = int(search_key.split("_")[0])
+            if user_id != requested_user_id:
+                return await safe_answer_callback(
+                    query,
+                    f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
+                    show_alert=True,
+                )
         except Exception:
             pass
-    except (QueryIdInvalid, MessageIdInvalid):
-        pass
-    except Exception as e:
-        logger.error(f"Error in qualities_cb_handler: {e}")
 
-    try:
-        await query.answer()
-    except Exception:
-        pass
+        btn = []
+        
+        # Create quality buttons, 2 per row
+        for i in range(0, len(QUALITIES), 2):
+            q1 = QUALITIES[i]
+            row = [InlineKeyboardButton(
+                text=q1,
+                callback_data=f"fq#{q1.lower()}#{search_key}",
+                style=ButtonStyle.DEFAULT,
+                icon_custom_emoji_id=5802910664150226061
+            )]
+            if i + 1 < len(QUALITIES):
+                q2 = QUALITIES[i + 1]
+                row.append(InlineKeyboardButton(
+                    text=q2,
+                    callback_data=f"fq#{q2.lower()}#{search_key}",
+                    style=ButtonStyle.DEFAULT,
+                    icon_custom_emoji_id=5802910664150226061
+                ))
+            btn.append(row)
+
+        btn.insert(0, [
+            InlineKeyboardButton(
+                text="⇊ ꜱᴇʟᴇᴄᴛ ǫᴜᴀʟɪᴛʏ ⇊",
+                callback_data="ident",
+                style=ButtonStyle.DEFAULT,
+                icon_custom_emoji_id=5215354932598350357
+            )
+        ])
+
+        btn.append([
+            InlineKeyboardButton(
+                text="↭ ʙᴀᴄᴋ ᴛᴏ ꜰɪʟᴇs ↭",
+                callback_data=f"next|{search_key}|0",
+                style=ButtonStyle.SUCCESS,
+                icon_custom_emoji_id=5210912043019822307
+            )
+        ])
+
+        await safe_edit_reply_markup(query, reply_markup=InlineKeyboardMarkup(btn))
+        await safe_answer_callback(query)
+    finally:
+        IN_FLIGHT_CALLBACKS.release(lock_key)
 
 @Client.on_callback_query(filters.regex(r"^fq#"))
 async def filter_quality_cb_handler(client: Client, query: CallbackQuery):
     """Handles the application of a quality filter."""
+    user_id = query.from_user.id
+    msg_id = getattr(query.message, "id", query.id)
+    lock_key = (user_id, msg_id, "filter_quality")
+    if not IN_FLIGHT_CALLBACKS.acquire(lock_key):
+        await safe_answer_callback(query, "⏳ Filtering...", show_alert=False)
+        return
+
+    tracker = PerfTracker(action="filter_quality", user_id=user_id, query=query.data)
     try:
-        _, qual, search_key = query.data.split("#")
-    except ValueError:
-        return await query.answer("Iɴᴠᴀʟɪᴅ ǫᴜᴀʟɪᴛʏ ғɪʟᴛᴇʀ ᴅᴀᴛᴀ.", show_alert=True)
+        try:
+            _, qual, search_key = query.data.split("#")
+        except ValueError:
+            return await safe_answer_callback(query, "Iɴᴠᴀʟɪᴅ ǫᴜᴀʟɪᴛʏ ғɪʟᴛᴇʀ ᴅᴀᴛᴀ.", show_alert=True)
 
-    original_search_query = SEARCH_CACHE.get(search_key)
+        original_search_query = SEARCH_CACHE.get(search_key)
+        if not original_search_query:
+            return await safe_answer_callback(query, "Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ. 🔰", show_alert=True)
 
-    if not original_search_query:
-        return await query.answer("Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ. 🔰", show_alert=True)
+        try:
+            requested_user_id = int(search_key.split("_")[0])
+            if user_id != requested_user_id:
+                return await safe_answer_callback(
+                    query,
+                    f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
+                    show_alert=True,
+                )
+        except Exception:
+            pass
 
-    requested_user_id = int(search_key.split("_")[0])
-    if query.from_user.id != requested_user_id:
-        return await query.answer(
-            f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\n"
-            f"ᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇꜱᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
-            show_alert=True,
-        )
+        qual_lower = qual.lower()
+        search_words = original_search_query.lower().split()
+        all_quality_codes = get_all_quality_codes()
 
-    qual_lower = qual.lower()
-    search_words = original_search_query.lower().split()
-    all_quality_codes = get_all_quality_codes()
+        base_query_words = [word for word in search_words if word not in all_quality_codes]
 
-    base_query_words = [word for word in search_words if word not in all_quality_codes]
-
-    if qual_lower in search_words:
-        new_filtered_search = " ".join(base_query_words)
-        alert_message = f"❌ Qᴜᴀʟɪᴛʏ ғɪʟᴛᴇʀ ʀᴇᴍᴏᴠᴇᴅ: {qual.upper()} Sᴜᴄᴄᴇsғᴜʟʟʏ✅"
-    else:
-        base_query_words.append(qual_lower)
-        new_filtered_search = " ".join(base_query_words)
-        alert_message = f"Yᴏᴜʀ ғɪʟᴇs ᴀʀᴇ ɴᴏᴡ ғɪʟᴛᴇʀᴇᴅ ᴛᴏ: {qual.upper()} Sᴜᴄᴄᴇsғᴜʟʟʏ✅"
-            
-    try:
+        if qual_lower in search_words:
+            new_filtered_search = " ".join(base_query_words)
+            alert_message = f"❌ Qᴜᴀʟɪᴛʏ ғɪʟᴛᴇʀ ʀᴇᴍᴏᴠᴇᴅ: {qual.upper()} Sᴜᴄᴄᴇsғᴜʟʟʏ✅"
+        else:
+            base_query_words.append(qual_lower)
+            new_filtered_search = " ".join(base_query_words)
+            alert_message = f"Yᴏᴜʀ ғɪʟᴇs ᴀʀᴇ ɴᴏᴡ ғɪʟᴛᴇʀᴇᴅ ᴛᴏ: {qual.upper()} Sᴜᴄᴄᴇsғᴜʟʟʏ✅"
+                
+        t0 = time.time()
         files, offset = await get_search_results(new_filtered_search, offset=0)
+        tracker.db_ms = (time.time() - t0) * 1000
         
         if not files:
             files_revert, offset_revert = await get_search_results(original_search_query, offset=0)
             revert_btn = generate_main_buttons(files_revert, offset_revert, search_key)
             
-            await query.answer(
+            await safe_answer_callback(
+                query,
                 f"🚫 ɴᴏ ꜰɪʟᴇꜱ ᴡᴇʀᴇ ꜰᴏᴜɴᴅ ᴡɪᴛʜ ᴛʜɪꜱ ǫᴜᴀʟɪᴛʏ {qual.upper()}. Bᴀᴄᴋ ᴛᴏ ᴏʀɪɢɪɴᴀʟ sᴇᴀʀᴄʜ ʀᴇsᴜʟᴛs.", 
                 show_alert=True
             )
             
-            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(revert_btn))
+            await safe_edit_reply_markup(query, reply_markup=InlineKeyboardMarkup(revert_btn))
             return
 
         SEARCH_CACHE.set(search_key, new_filtered_search)
         btn = generate_main_buttons(files, offset, search_key)
 
-        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
-        await query.answer(alert_message, show_alert=True)
+        t1 = time.time()
+        await safe_edit_reply_markup(query, reply_markup=InlineKeyboardMarkup(btn))
+        tracker.telegram_ms = (time.time() - t1) * 1000
+        tracker.edit_count = 1
+        tracker.telegram_calls = 1
 
-    except MessageNotModified:
-        try:
-            await query.answer(alert_message, show_alert=True)
-        except Exception:
-            pass
-    except FloodWait as e:
-        logger.warning(f"FloodWait in filter_quality_cb_handler: {e.value}s")
-        try:
-            await query.answer(f"⚠️ Please wait {e.value} seconds before clicking again.", show_alert=True)
-        except Exception:
-            pass
-    except (QueryIdInvalid, MessageIdInvalid):
-        pass
-    except Exception as e:
-        try:
-            await query.answer("Aɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴅᴜʀɪɴɢ ᴏ̨ᴜᴀʟɪᴛʏ sᴇᴀʀᴄʜ.", show_alert=True)
-        except Exception:
-            pass
+        await safe_answer_callback(query, alert_message, show_alert=True)
+    finally:
+        IN_FLIGHT_CALLBACKS.release(lock_key)
+        tracker.log()
         
 @Client.on_callback_query(filters.regex(r"^sp#"))
 async def spell_check_cb_handler(client: Client, query: CallbackQuery):
     """Handles the user clicking a spell check suggestion button."""
+    user_id = query.from_user.id
+    msg_id = getattr(query.message, "id", query.id)
+    lock_key = (user_id, msg_id, "spell_cb")
+    if not IN_FLIGHT_CALLBACKS.acquire(lock_key):
+        await safe_answer_callback(query, "⏳ Searching...", show_alert=False)
+        return
+
+    tracker = PerfTracker(action="spell_click", user_id=user_id, query=query.data)
     try:
         try:
             _, search_key, index_str = query.data.split("#")
             index = int(index_str)
         except ValueError:
-            try:
-                await query.answer("Iɴᴠᴀʟɪᴅ sᴜɢɢᴇsᴛɪᴏɴ ᴅᴀᴛᴀ.", show_alert=True)
-            except (QueryIdInvalid, Exception):
-                pass
-            return
+            return await safe_answer_callback(query, "Iɴᴠᴀʟɪᴅ sᴜɢɢᴇsᴛɪᴏɴ ᴅᴀᴛᴀ.", show_alert=True)
 
-        requested_user_id = int(search_key.split("_")[0])
-        if query.from_user.id != requested_user_id:
-            try:
-                await query.answer(
-                    f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\n"
-                    f"ᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇsᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
+        try:
+            requested_user_id = int(search_key.split("_")[0])
+            if user_id != requested_user_id:
+                return await safe_answer_callback(
+                    query,
+                    f"⚠️ ʜᴇʟʟᴏ {query.from_user.first_name},\nᴛʜɪꜱ ɪꜱ ɴᴏᴛ ʏᴏᴜʀ ᴍᴏᴠɪᴇ ʀᴇǫᴜᴇsᴛ,\nʀᴇǫᴜᴇꜱᴛ ʏᴏᴜʀ'ꜱ...",
                     show_alert=True,
                 )
-            except (QueryIdInvalid, Exception):
-                pass
-            return
+        except Exception:
+            pass
 
         suggestions = SEARCH_CACHE.get(f"spell_{search_key}")
         if not suggestions or index >= len(suggestions):
-            try:
-                await query.answer("Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ sᴇᴀʀᴄʜ ᴀɢᴀɪɴ. 🔰", show_alert=True)
-            except (QueryIdInvalid, Exception):
-                pass
-            return
+            return await safe_answer_callback(query, "Sᴇᴀʀᴄʜ ᴇxᴘɪʀᴇᴅ ᴏʀ ɴᴏᴛ ғᴏᴜɴᴅ. Pʟᴇᴀsᴇ sᴇᴀʀᴄʜ ᴀɢᴀɪɴ. 🔰", show_alert=True)
 
         selected_suggestion = suggestions[index]
-        try:
-            await query.answer(f"🔎 Sᴇᴀʀᴄʜɪɴɢ ғᴏʀ: {selected_suggestion}", show_alert=False)
-        except (QueryIdInvalid, Exception):
-            pass
+        await safe_answer_callback(query, f"🔎 Sᴇᴀʀᴄʜɪɴɢ ғᴏʀ: {selected_suggestion}", show_alert=False)
 
+        t0 = time.time()
         files, offset = await get_search_results(selected_suggestion, offset=0)
+        tracker.db_ms = (time.time() - t0) * 1000
 
         if not files:
-            try:
-                await query.edit_message_text(
-                    text=f"🚫 Nᴏ ғɪʟᴇs ғᴏᴜɴᴅ ғᴏʀ <b>{selected_suggestion}</b>.",
-                    parse_mode=enums.ParseMode.HTML
-                )
-            except (MessageNotModified, Exception):
-                pass
+            await safe_edit_message_text(
+                query,
+                text=f"🚫 Nᴏ ғɪʟᴇs ғᴏᴜɴᴅ ғᴏʀ <b>{selected_suggestion}</b>.",
+                parse_mode=enums.ParseMode.HTML
+            )
             return
 
         cyber = query.from_user.mention
         btn = generate_main_buttons(files, offset, search_key)
         SEARCH_CACHE.set(search_key, selected_suggestion)
 
-        try:
-            await query.edit_message_text(
-                text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=selected_suggestion, page=1),
-                reply_markup=InlineKeyboardMarkup(btn),
-                parse_mode=enums.ParseMode.HTML
-            )
-        except MessageNotModified:
-            pass
-        except Exception as e:
-            logger.exception(f"Error updating message for suggestion search: {e}")
-    except QueryIdInvalid:
-        pass
-    except Exception as e:
-        logger.exception(f"Error in spell_check_cb_handler: {e}")
+        t1 = time.time()
+        await safe_edit_message_text(
+            query,
+            text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=selected_suggestion, page=1),
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+        tracker.telegram_ms = (time.time() - t1) * 1000
+        tracker.edit_count = 1
+        tracker.telegram_calls = 1
+    finally:
+        IN_FLIGHT_CALLBACKS.release(lock_key)
+        tracker.log()
 
 @Client.on_callback_query(group=1)
 async def main_cb_handler(client: Client, query: CallbackQuery):
     data = query.data
     logger.debug(f"[main_cb_handler] user={query.from_user.id} data={data!r}")
     if data == "close_data":
-        await query.message.delete()
+        if query.message:
+            await safe_delete_message(query.message)
+        await safe_answer_callback(query)
 
     elif data.startswith("file#"):
         _, file_id = data.split("#")
         try:
             await query.answer(url=f"https://t.me/{temp.U_NAME}?start=file_{file_id}")
         except (UserIsBlocked, PeerIdInvalid):
-            await query.answer("Bot blocked or not started! Please start the bot in private first.", url=f"https://t.me/{temp.U_NAME}?start=file_{file_id}", show_alert=True)
-        except QueryIdInvalid:
-            await query.answer("This request has expired. Please search again.", show_alert=True)
-        except Exception as e:
-            logger.exception(e)
-            await query.answer("An unexpected error occurred.", show_alert=True)
+            await safe_answer_callback(query, "Bot blocked or not started! Please start the bot in private first.", url=f"https://t.me/{temp.U_NAME}?start=file_{file_id}", show_alert=True)
+        except Exception:
+            await safe_answer_callback(query, url=f"https://t.me/{temp.U_NAME}?start=file_{file_id}")
 
     elif data.startswith("checksub#") or data.startswith("checksubp#"):
         ident, file_id = data.split("#", 1)
         user_id = query.from_user.id
 
-        full_file_arg = f"{'filep' if ident == 'checksubp' else 'file'}_{file_id}" if file_id else None
-        reply_markup, unjoined = await build_dynamic_fsub_keyboard(client, user_id, file_id=full_file_arg)
+        lock_key = (user_id, file_id, "checksub")
+        if not IN_FLIGHT_CALLBACKS.acquire(lock_key):
+            await safe_answer_callback(query, "⏳ Checking subscription...", show_alert=False)
+            return
 
-        if unjoined:
-            try:
-                await query.edit_message_reply_markup(reply_markup=reply_markup)
-            except MessageNotModified:
-                pass
-            except Exception as e:
-                logger.debug(f"checksub edit_message_reply_markup error: {e}")
-
-            return await query.answer(
-                "🚨 You haven't joined all required channels yet! Joined channel buttons have been hidden. Please join the remaining channel(s) shown above and click Try Again.",
-                show_alert=True
-            )
-
-        files = await get_file_details(file_id)
-        if not files:
-            return await query.answer('⚠️ File not found or has been removed.', show_alert=True)
-        
-        await query.answer("✅ Checking complete. Sending file...", show_alert=False)
-        
         try:
-            stream_markup = await get_stream_buttons_async(file_id=file_id, file_name=files[0].file_name)
-            sent_msg = await client.send_cached_media(
-                chat_id=query.from_user.id,
-                file_id=file_id,
-                caption=get_file_caption(files[0]),
-                protect_content=(ident == "checksubp"),
-                reply_markup=stream_markup,
-                parse_mode=enums.ParseMode.MARKDOWN
-            )
-            if sent_msg:
-                delete_reply = None
+            full_file_arg = f"{'filep' if ident == 'checksubp' else 'file'}_{file_id}" if file_id else None
+            reply_markup, unjoined = await build_dynamic_fsub_keyboard(client, user_id, file_id=full_file_arg)
+
+            if unjoined:
                 if query.message:
-                    try:
-                        delete_reply = await query.message.reply(DELETE_TXT, reply_parameters=ReplyParameters(message_id=sent_msg.id), parse_mode=enums.ParseMode.MARKDOWN)
-                    except Exception:
-                        delete_reply = await client.send_message(query.from_user.id, DELETE_TXT, parse_mode=enums.ParseMode.MARKDOWN)
-                
-                await asyncio.sleep(AUTO_DEL)
-                tasks = [sent_msg.delete()]
-                if delete_reply:
-                    tasks.append(delete_reply.delete())
-                if query.message:
-                    tasks.append(query.message.delete())
-                await asyncio.gather(*tasks, return_exceptions=True)
-            else:
-                await query.answer("❌ Failed to send file.", show_alert=True)
+                    await safe_edit_reply_markup(query.message, reply_markup=reply_markup)
+
+                return await safe_answer_callback(
+                    query,
+                    "🚨 You haven't joined all required channels yet! Joined channel buttons have been hidden. Please join the remaining channel(s) shown above and click Try Again.",
+                    show_alert=True
+                )
+
+            files = await get_file_details(file_id)
+            if not files:
+                return await safe_answer_callback(query, '⚠️ File not found or has been removed.', show_alert=True)
             
-        except FloodWait as e:
-            await asyncio.sleep(e.value)
-            await query.answer(f"Flood control: Please wait {e.value} seconds.", show_alert=True)
-        except Exception as e:
-            logger.exception(e)
-            await query.answer("An error occurred while sending the file.", show_alert=True)
+            await safe_answer_callback(query, "✅ Checking complete. Sending file...", show_alert=False)
+            
+            try:
+                stream_markup = await get_stream_buttons_async(file_id=file_id, file_name=files[0].file_name)
+                GLOBAL_METRICS.inc("send_message")
+                sent_msg = await client.send_cached_media(
+                    chat_id=query.from_user.id,
+                    file_id=file_id,
+                    caption=get_file_caption(files[0]),
+                    protect_content=(ident == "checksubp"),
+                    reply_markup=stream_markup,
+                    parse_mode=enums.ParseMode.MARKDOWN
+                )
+                if sent_msg:
+                    await add_auto_delete_message(query.from_user.id, sent_msg.id, temp.FILE_DEL_TIME, msg_type="file", file_id=file_id)
+                    GLOBAL_METRICS.inc("send_message")
+                    del_notice = await client.send_message(
+                        chat_id=query.from_user.id,
+                        text=DELETE_TXT.format(format_time_str(temp.FILE_DEL_TIME)),
+                        parse_mode=enums.ParseMode.HTML
+                    )
+                    await add_auto_delete_message(query.from_user.id, del_notice.id, temp.FILE_DEL_TIME, msg_type="delete_txt")
+                else:
+                    await safe_answer_callback(query, "❌ Failed to send file.", show_alert=True)
+                
+            except FloodWait as e:
+                logger.warning(f"FloodWait when sending media: {e.value}s")
+                GLOBAL_METRICS.inc("flood_wait_events")
+                await safe_answer_callback(query, f"Flood control: Please wait {e.value} seconds.", show_alert=True)
+            except Exception as e:
+                logger.exception(e)
+                await safe_answer_callback(query, "An error occurred while sending the file.", show_alert=True)
+        finally:
+            IN_FLIGHT_CALLBACKS.release(lock_key)
 
     elif data.startswith("killfilesdq#"):
         _, keyword = data.split("#")
@@ -766,11 +766,9 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
                 return await msg.edit_text(f"✅ No files found matching `{keyword}` across all databases.")
             
             total_found = len(unique_ids_to_delete)
-            
             await msg.edit_text(f"🗑️ **Step 2/3: Deleting `{total_found}` files from MongoDB collections...**")
     
             mongo_deleted_count = 0
-    
             await msg.edit_text(f"🗃️ **Step 3/3: Deleting `{total_found}` files from SQLite database...**")
     
             sql_deleted_count = 0
@@ -796,9 +794,9 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             await msg.edit_text(f'❌ **An unexpected error occurred:** `{e}`')
 
     elif query.data == "abc":
-        await query.answer("Tʜɪs ғᴇᴀᴛᴜʀᴇ ᴡɪʟʟ ʙᴇ ᴀᴅᴅ sᴏᴏɴ 😉", show_alert=True)
+        await safe_answer_callback(query, "Tʜɪs ғᴇᴀᴛᴜʀᴇ ᴡɪʟʟ ʙᴇ ᴀᴅᴅ sᴏᴏɴ 😉", show_alert=True)
     elif query.data == "efg":
-        await query.answer("Tʜɪs ғᴇᴀᴛᴜʀᴇ ᴡɪʟʟ ʙᴇ ᴀᴅᴅ sᴏᴏɴ 😉", show_alert=True)
+        await safe_answer_callback(query, "Tʜɪs ғᴇᴀᴛᴜʀᴇ ᴡɪʟʟ ʙᴇ ᴀᴅᴅ sᴏᴏɴ 😉", show_alert=True)
 
     elif data == "start":
         buttons = [[
@@ -830,10 +828,13 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             )
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
-        await query.message.edit_text(
-            text=script.START_TXT.format(query.message.from_user.mention if query.message.from_user else "User"),
+        user_mention = query.message.from_user.mention if query.message.from_user else "User"
+        await safe_edit_message_text(
+            query.message,
+            text=script.START_TXT.format(user_mention, temp.U_NAME, temp.B_NAME),
             reply_markup=reply_markup
         )
+        await safe_answer_callback(query)
     elif data == "help":
         buttons = [[
             InlineKeyboardButton(
@@ -857,12 +858,14 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             )
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
-        await query.message.edit_text(
-            text=script.HELP_TXT.format(query.message.from_user.mention if query.message.from_user else "User"),
+        user_mention = query.message.from_user.mention if query.message.from_user else "User"
+        await safe_edit_message_text(
+            query.message,
+            text=script.HELP_TXT.format(user_mention),
             reply_markup=reply_markup
         )
+        await safe_answer_callback(query)
     elif data == "about":
-        print("about")
         buttons = [[
             InlineKeyboardButton(
                 '🌐 Rᴇᴘᴏ 🌐',
@@ -885,12 +888,16 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
             )
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
-        await query.message.edit_text(
-            text=script.ABOUT_TXT.format(query.message.from_user.mention if query.message.from_user else "User"),
+        user_mention = query.message.from_user.mention if query.message.from_user else "User"
+        await safe_edit_message_text(
+            query.message,
+            text=script.ABOUT_TXT.format(user_mention),
             reply_markup=reply_markup
         )
+        await safe_answer_callback(query)
     elif data == "stats":
-        await query.message.edit_text("⏳Lᴏᴀᴅɪɴɢ sᴛᴀᴛɪsᴛɪᴄs...")
+        await safe_edit_message_text(query.message, "⏳Lᴏᴀᴅɪɴɢ sᴛᴀᴛɪsᴛɪᴄs...")
+        await safe_answer_callback(query)
         
         tot1 = await Media2.count_documents()
         tot2 = await Media3.count_documents()
@@ -916,7 +923,8 @@ async def main_cb_handler(client: Client, query: CallbackQuery):
         except Exception:
             used_dbSize3 = 0.0
 
-        await query.message.edit_text(
+        await safe_edit_message_text(
+            query.message,
             text=script.STATUS_TXT.format(total, users, chats, used_dbSize1, used_dbSize2, used_dbSize3),
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton(
@@ -933,7 +941,11 @@ async def reply_with_spell_check_suggestions(message, cyber, search):
     """Replies with fast spell check suggestions from SQLite DB when no search results are found."""
     if not message.from_user:
         return
+    tracker = PerfTracker(action="spell_check", user_id=message.from_user.id, query=search)
+    t0 = time.time()
     suggestions = await get_suggestions_sql(search)
+    tracker.db_ms = (time.time() - t0) * 1000
+
     try:
         if suggestions:
             search_key = f"{message.from_user.id}_{message.id}"
@@ -983,24 +995,38 @@ async def reply_with_spell_check_suggestions(message, cyber, search):
             ])
             
             spell_text = script.SPELL_CHECK_TXT.format(cyber=cyber, search=search)
+            t1 = time.time()
+            GLOBAL_METRICS.inc("send_message")
             reply_msg = await message.reply_text(
                 text=spell_text,
                 reply_markup=InlineKeyboardMarkup(btn),
                 parse_mode=enums.ParseMode.HTML
             )
+            tracker.telegram_ms = (time.time() - t1) * 1000
+            tracker.send_count = 1
+            tracker.telegram_calls = 1
             await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
         else:
+            t1 = time.time()
+            GLOBAL_METRICS.inc("send_message")
             reply_msg = await message.reply(
                 f"Hᴇʏ {cyber} 💫,\n"
                 f"Nᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n"
                 f"➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴇsᴇᴅ.✨"
             )
+            tracker.telegram_ms = (time.time() - t1) * 1000
+            tracker.send_count = 1
+            tracker.telegram_calls = 1
             await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
     except FloodWait as e:
         logger.warning(f"FloodWait in reply_with_spell_check_suggestions: {e.value}s")
-        await asyncio.sleep(e.value)
+        GLOBAL_METRICS.inc("flood_wait_events")
+        if e.value <= 3:
+            await asyncio.sleep(e.value + 0.1)
     except Exception as e:
         logger.error(f"Error in reply_with_spell_check_suggestions: {e}")
+    finally:
+        tracker.log()
 
 async def auto_filter(client, message):
     if not message.from_user:
@@ -1012,9 +1038,13 @@ async def auto_filter(client, message):
     if len(search) < 2 or len(search) > 150:
         return
 
+    tracker = PerfTracker(action="search_group", user_id=message.from_user.id, query=search)
+    t0 = time.time()
     files, offset = await get_search_results(search, offset=0)
+    tracker.db_ms = (time.time() - t0) * 1000
 
     if not files:
+        tracker.log()
         await reply_with_spell_check_suggestions(message, cyber, search)
         return
 
@@ -1022,26 +1052,36 @@ async def auto_filter(client, message):
     btn = generate_main_buttons(files, offset=0, search_key=search_key, next_offset=offset)
     
     try:
+        t1 = time.time()
+        GLOBAL_METRICS.inc("send_message")
         reply_msg = await message.reply_text(
             text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
+        tracker.telegram_ms = (time.time() - t1) * 1000
+        tracker.send_count = 1
+        tracker.telegram_calls = 1
         await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
     except FloodWait as e:
         logger.warning(f"FloodWait in auto_filter: {e.value}s")
-        await asyncio.sleep(e.value)
-        try:
-            reply_msg = await message.reply_text(
-                text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
-                reply_markup=InlineKeyboardMarkup(btn),
-                parse_mode=enums.ParseMode.HTML
-            )
-            await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
-        except Exception as ex:
-            logger.error(f"Error retrying auto_filter reply: {ex}")
+        GLOBAL_METRICS.inc("flood_wait_events")
+        if e.value <= 3:
+            await asyncio.sleep(e.value + 0.1)
+            try:
+                GLOBAL_METRICS.inc("send_message")
+                reply_msg = await message.reply_text(
+                    text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
+                    reply_markup=InlineKeyboardMarkup(btn),
+                    parse_mode=enums.ParseMode.HTML
+                )
+                await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
+            except Exception as ex:
+                logger.error(f"Error retrying auto_filter reply: {ex}")
     except Exception as e:
         logger.error(f"Error in auto_filter: {e}")
+    finally:
+        tracker.log()
 
     SEARCH_CACHE.set(search_key, search)
 
@@ -1055,9 +1095,13 @@ async def pm_auto_filter(client, message):
     if len(search) < 2 or len(search) > 150:
         return
 
+    tracker = PerfTracker(action="search_pm", user_id=message.from_user.id, query=search)
+    t0 = time.time()
     files, offset = await get_search_results(search, offset=0)
+    tracker.db_ms = (time.time() - t0) * 1000
 
     if not files:
+        tracker.log()
         await reply_with_spell_check_suggestions(message, cyber, search)
         return
 
@@ -1065,26 +1109,36 @@ async def pm_auto_filter(client, message):
     btn = generate_main_buttons(files, offset=0, search_key=search_key, next_offset=offset)
  
     try:
+        t1 = time.time()
+        GLOBAL_METRICS.inc("send_message")
         reply_msg = await message.reply_text(
             text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
             parse_mode=enums.ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(btn),
         )
+        tracker.telegram_ms = (time.time() - t1) * 1000
+        tracker.send_count = 1
+        tracker.telegram_calls = 1
         await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
     except FloodWait as e:
         logger.warning(f"FloodWait in pm_auto_filter: {e.value}s")
-        await asyncio.sleep(e.value)
-        try:
-            reply_msg = await message.reply_text(
-                text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
-                parse_mode=enums.ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(btn),
-            )
-            await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
-        except Exception as ex:
-            logger.error(f"Error retrying pm_auto_filter reply: {ex}")
+        GLOBAL_METRICS.inc("flood_wait_events")
+        if e.value <= 3:
+            await asyncio.sleep(e.value + 0.1)
+            try:
+                GLOBAL_METRICS.inc("send_message")
+                reply_msg = await message.reply_text(
+                    text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
+                    parse_mode=enums.ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(btn),
+                )
+                await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
+            except Exception as ex:
+                logger.error(f"Error retrying pm_auto_filter reply: {ex}")
     except Exception as e:
         logger.error(f"Error in pm_auto_filter: {e}")
+    finally:
+        tracker.log()
 
     SEARCH_CACHE.set(search_key, search)
     
@@ -1110,6 +1164,7 @@ async def global_filters(client, message):
             button_data = ast.literal_eval(btn)
             markup = InlineKeyboardMarkup(button_data) if button_data else None
 
+        GLOBAL_METRICS.inc("send_message")
         if fileid == "None":
             sent = await client.send_message(message.chat.id, reply_text, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True))
         else:

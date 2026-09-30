@@ -4,18 +4,20 @@ import aiohttp
 import re
 import os
 import base64
+import random
 from urllib.parse import quote
 from datetime import datetime, timedelta
-from typing import Union, List, Tuple
+from typing import Union, List, Tuple, Optional, Dict, Any
 from pyrogram import Client, enums
-from pyrogram.errors import UserNotParticipant, MessageNotModified
-from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity
+from pyrogram.errors import (
+    UserNotParticipant, MessageNotModified, FloodWait,
+    MessageIdInvalid, QueryIdInvalid, PeerIdInvalid, UserIsBlocked, InputUserDeactivated
+)
+from pyrogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, LinkPreviewOptions
 from database.users_chats_db import db
 from info import ADMINS, AUTH_CHANNEL, MAX_LIST_ELM
-from bs4 import BeautifulSoup  # Although imported, not used in the provided code
-import requests  # Although imported, not used in the provided code
 from pyrogram.enums import MessageEntityType
-
+import time
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -27,6 +29,263 @@ BTN_URL_REGEX = re.compile(
 SMART_OPEN = '“'
 SMART_CLOSE = '”'
 START_CHAR = ('\'', '"', SMART_OPEN)
+
+# --- Performance & Telemetry Instrumentation ---
+class PerfTracker:
+    def __init__(self, action: str, user_id: int = 0, query: str = ""):
+        self.action = action
+        self.user_id = user_id
+        self.query = query
+        self.start_t = time.time()
+        self.db_ms = 0.0
+        self.telegram_ms = 0.0
+        self.telegram_calls = 0
+        self.send_count = 0
+        self.edit_count = 0
+        self.delete_count = 0
+        self.get_participant_count = 0
+        self.retries = 0
+        self.flood_wait_seconds = 0
+        self.cache_hit = False
+
+    def log(self):
+        total_ms = int((time.time() - self.start_t) * 1000)
+        logger.info(
+            f"[PERF] action={self.action} user_id={self.user_id} query={self.query!r} "
+            f"total_ms={total_ms} db_ms={int(self.db_ms)} telegram_ms={int(self.telegram_ms)} "
+            f"telegram_calls={self.telegram_calls} send={self.send_count} edit={self.edit_count} "
+            f"delete={self.delete_count} get_participant={self.get_participant_count} "
+            f"retries={self.retries} flood_wait={self.flood_wait_seconds} cache_hit={self.cache_hit}"
+        )
+
+class ApiCallMetrics:
+    def __init__(self):
+        self.counts = {
+            "send_message": 0,
+            "edit_message": 0,
+            "delete_message": 0,
+            "get_participant": 0,
+            "answer_callback": 0,
+            "flood_wait_events": 0,
+            "rpc_errors": 0,
+        }
+
+    def inc(self, key: str, val: int = 1):
+        if key in self.counts:
+            self.counts[key] += val
+
+    def get_stats(self) -> Dict[str, int]:
+        return dict(self.counts)
+
+GLOBAL_METRICS = ApiCallMetrics()
+
+# --- Concurrency & In-Flight Tracking ---
+class InFlightTracker:
+    """Tracks in-flight operations per key (e.g. (user_id, message_id)) to deduplicate concurrent requests."""
+    def __init__(self):
+        self._active = set()
+
+    def acquire(self, key) -> bool:
+        if key in self._active:
+            return False
+        self._active.add(key)
+        return True
+
+    def release(self, key):
+        self._active.discard(key)
+
+IN_FLIGHT_CALLBACKS = InFlightTracker()
+
+# --- Short-Lived Membership Cache ---
+class MembershipCache:
+    """
+    Short-lived TTL cache for chat membership status.
+    Prevents channels.GetParticipant request storms without permanently caching.
+    """
+    def __init__(self, positive_ttl: float = 60.0, negative_ttl: float = 8.0):
+        self._cache = {}  # (user_id, channel_id) -> (is_member, expire_at)
+        self.positive_ttl = positive_ttl
+        self.negative_ttl = negative_ttl
+
+    def get(self, user_id: int, channel_id: int) -> Optional[bool]:
+        if not user_id or not channel_id:
+            return None
+        key = (int(user_id), int(channel_id))
+        entry = self._cache.get(key)
+        if entry is not None:
+            is_member, expire_at = entry
+            if time.time() < expire_at:
+                return is_member
+            else:
+                self._cache.pop(key, None)
+        return None
+
+    def set(self, user_id: int, channel_id: int, is_member: bool):
+        if not user_id or not channel_id:
+            return
+        key = (int(user_id), int(channel_id))
+        ttl = self.positive_ttl if is_member else self.negative_ttl
+        self._cache[key] = (is_member, time.time() + ttl)
+
+    def invalidate(self, user_id: int, channel_id: Optional[int] = None):
+        if channel_id is not None:
+            self._cache.pop((int(user_id), int(channel_id)), None)
+        else:
+            to_del = [k for k in self._cache if k[0] == int(user_id)]
+            for k in to_del:
+                self._cache.pop(k, None)
+
+MEMBERSHIP_CACHE = MembershipCache(positive_ttl=60.0, negative_ttl=8.0)
+
+# --- Safe Telegram Operations ---
+
+async def safe_delete_message(client_or_message, chat_id: Optional[int] = None, message_id: Optional[int] = None) -> bool:
+    """
+    Best-effort safe message deletion.
+    Handles MessageDeleteForbidden, MessageIdInvalid, PeerIdInvalid, FloodWait gracefully.
+    A failed deletion will never crash or break callback flow.
+    """
+    GLOBAL_METRICS.inc("delete_message")
+    try:
+        if hasattr(client_or_message, "delete") and callable(client_or_message.delete):
+            await client_or_message.delete()
+            return True
+        elif chat_id and message_id:
+            await client_or_message.delete_messages(chat_id=chat_id, message_ids=message_id)
+            return True
+    except (MessageNotModified, MessageIdInvalid, PeerIdInvalid):
+        return False
+    except FloodWait as e:
+        logger.warning(f"Safe delete FloodWait: {e.value}s")
+        GLOBAL_METRICS.inc("flood_wait_events")
+        return False
+    except Exception as e:
+        err_str = str(e)
+        if "MESSAGE_DELETE_FORBIDDEN" in err_str or "MessageDeleteForbidden" in type(e).__name__:
+            logger.debug(f"Safe delete: delete forbidden in chat {chat_id}: {e}")
+        else:
+            logger.debug(f"Safe delete error: {e}")
+        return False
+    return False
+
+async def safe_edit_message_text(
+    message_or_query,
+    text: str,
+    reply_markup: Optional[InlineKeyboardMarkup] = None,
+    parse_mode = None,
+    link_preview_options: Optional[LinkPreviewOptions] = None
+) -> bool:
+    """
+    Safe message text editing with equality check, bounded FloodWait handling, and transient RPC backoff.
+    """
+    # Pre-check equality to avoid unnecessary Telegram RPC
+    curr_msg = message_or_query.message if isinstance(message_or_query, CallbackQuery) else message_or_query
+    if hasattr(curr_msg, "text") and curr_msg.text == text:
+        if reply_markup is None or (hasattr(curr_msg, "reply_markup") and curr_msg.reply_markup == reply_markup):
+            return True
+
+    GLOBAL_METRICS.inc("edit_message")
+    for attempt in range(3):
+        try:
+            if hasattr(message_or_query, "edit_text"):
+                await message_or_query.edit_text(
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode,
+                    link_preview_options=link_preview_options
+                )
+            elif hasattr(message_or_query, "edit_message_text"):
+                await message_or_query.edit_message_text(
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode,
+                    link_preview_options=link_preview_options
+                )
+            return True
+        except MessageNotModified:
+            return True
+        except (MessageIdInvalid, QueryIdInvalid, PeerIdInvalid, UserIsBlocked, InputUserDeactivated):
+            return False
+        except FloodWait as e:
+            GLOBAL_METRICS.inc("flood_wait_events")
+            logger.warning(f"FloodWait in safe_edit_message_text: {e.value}s (attempt {attempt+1})")
+            if attempt == 0 and e.value <= 3:
+                await asyncio.sleep(e.value + 0.1)
+            else:
+                # Do not retry prematurely if wait > 3s or second attempt
+                return False
+        except Exception as e:
+            err_str = str(e)
+            if any(transient in err_str for transient in ["RPC_CALL_FAIL", "INTERDC", "500", "No workers running", "TimeoutError"]):
+                GLOBAL_METRICS.inc("rpc_errors")
+                logger.warning(f"Transient RPC error in safe_edit_message_text: {e} (attempt {attempt+1})")
+                if attempt < 2:
+                    await asyncio.sleep(0.3 * (attempt + 1) + random.uniform(0.05, 0.15))
+                    continue
+            logger.error(f"Error in safe_edit_message_text: {e}")
+            return False
+    return False
+
+async def safe_edit_reply_markup(
+    message_or_query,
+    reply_markup: Optional[InlineKeyboardMarkup] = None
+) -> bool:
+    """
+    Safe reply markup editing with equality check and FloodWait / RPC backoff.
+    """
+    # Pre-check equality to avoid unnecessary Telegram RPC
+    curr_msg = message_or_query.message if isinstance(message_or_query, CallbackQuery) else message_or_query
+    if hasattr(curr_msg, "reply_markup") and curr_msg.reply_markup == reply_markup:
+        return True
+
+    GLOBAL_METRICS.inc("edit_message")
+    for attempt in range(3):
+        try:
+            if hasattr(message_or_query, "edit_reply_markup"):
+                await message_or_query.edit_reply_markup(reply_markup=reply_markup)
+            elif hasattr(message_or_query, "edit_message_reply_markup"):
+                await message_or_query.edit_message_reply_markup(reply_markup=reply_markup)
+            return True
+        except MessageNotModified:
+            return True
+        except (MessageIdInvalid, QueryIdInvalid, PeerIdInvalid, UserIsBlocked, InputUserDeactivated):
+            return False
+        except FloodWait as e:
+            GLOBAL_METRICS.inc("flood_wait_events")
+            logger.warning(f"FloodWait in safe_edit_reply_markup: {e.value}s (attempt {attempt+1})")
+            if attempt == 0 and e.value <= 3:
+                await asyncio.sleep(e.value + 0.1)
+            else:
+                # Do not retry prematurely if wait > 3s or second attempt
+                return False
+        except Exception as e:
+            err_str = str(e)
+            if any(transient in err_str for transient in ["RPC_CALL_FAIL", "INTERDC", "500", "No workers running", "TimeoutError"]):
+                GLOBAL_METRICS.inc("rpc_errors")
+                logger.warning(f"Transient RPC error in safe_edit_reply_markup: {e} (attempt {attempt+1})")
+                if attempt < 2:
+                    await asyncio.sleep(0.3 * (attempt + 1) + random.uniform(0.05, 0.15))
+                    continue
+            logger.error(f"Error in safe_edit_reply_markup: {e}")
+            return False
+    return False
+
+async def safe_answer_callback(query, text: Optional[str] = None, show_alert: bool = False, url: Optional[str] = None) -> bool:
+    """Safe answer_callback_query to handle expired queries without breaking flow."""
+    GLOBAL_METRICS.inc("answer_callback")
+    try:
+        await query.answer(text=text, show_alert=show_alert, url=url)
+        return True
+    except (QueryIdInvalid, MessageIdInvalid, PeerIdInvalid):
+        return False
+    except FloodWait as e:
+        GLOBAL_METRICS.inc("flood_wait_events")
+        logger.debug(f"FloodWait in safe_answer_callback: {e.value}s")
+        return False
+    except Exception as e:
+        logger.debug(f"Error in safe_answer_callback: {e}")
+        return False
+
 
 class temp(object):
     AUTO_FILTER = True
@@ -66,8 +325,6 @@ async def load_datas(id: int):
     temp.FILTER_DEL_TIME = del_s.get('filter_del_time', 300)
     temp.FILE_DEL_TIME = del_s.get('file_del_time', 900)
     print(f"Loadout for ID {id} has been loaded.")
-
-import time
 
 def format_time_str(seconds: int) -> str:
     """Formats seconds into human-readable string (e.g. 15 minutes, 30 seconds)."""
@@ -139,6 +396,7 @@ async def delete_messages_loop(client):
                     for i in range(0, len(mids), 100):
                         chunk = mids[i:i + 100]
                         try:
+                            GLOBAL_METRICS.inc("delete_message", len(chunk))
                             await client.delete_messages(chat_id=cid, message_ids=chunk)
                         except Exception as e:
                             logger.debug(f"Error deleting messages in chat {cid}: {e}")
@@ -146,12 +404,12 @@ async def delete_messages_loop(client):
                         for mid in chunk:
                             await db.remove_from_auto_delete(cid, mid)
                         await db.remove_trash_messages(cid, chunk)
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(0.3)
 
                 # Send post-deletion notices for deleted files
                 post_text = (
                     "⚠️ 🗑️ <b>𝙔𝙤𝙪𝙧 𝙧𝙚𝙦𝙪𝙚𝙨𝙩𝙚𝙙 𝙛𝙞𝙡𝙚 𝙝𝙖𝙨 𝙗𝙚𝙚𝙣 𝙙𝙚𝙡𝙚𝙩𝙚𝙙!</b>\n\n"
-                    "📥 <i>𝘐𝘧 𝘺𝘰𝘶 𝘸𝘢𝘯𝘵 𝘵𝘩𝘦 𝙛𝙞𝙡𝘦, 𝘊𝘭𝘪𝘤𝘬 below button</i>"
+                    "📥 <i>𝘐𝘧 𝘺𝘰𝘶 𝘸𝘢𝘯𝘵 𝘵𝘩𝘦 𝙛𝙞𝙡𝙚, 𝘊𝘭𝘪𝘤𝘬 below button</i>"
                 )
                 for cid, fid in file_notices:
                     file_id_val = str(fid)
@@ -162,6 +420,7 @@ async def delete_messages_loop(client):
                         InlineKeyboardButton("📥 Get File Again", url=start_link)
                     ]])
                     try:
+                        GLOBAL_METRICS.inc("send_message")
                         sent_notice = await client.send_message(
                             chat_id=cid,
                             text=post_text,
@@ -203,6 +462,7 @@ async def clean_all_trash(client):
         for i in range(0, len(mids), 100):
             chunk = mids[i:i + 100]
             try:
+                GLOBAL_METRICS.inc("delete_message", len(chunk))
                 await client.delete_messages(chat_id=cid, message_ids=chunk)
                 total_deleted += len(chunk)
             except Exception as e:
@@ -246,6 +506,7 @@ async def check_subscription(client: Client, user_id: int, channel_id: Union[str
     if user_id in ADMINS:
         return True
     try:
+        GLOBAL_METRICS.inc("get_participant")
         member = await client.get_chat_member(channel_id, user_id)
         return member.status not in (enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED)
     except UserNotParticipant:
@@ -254,89 +515,167 @@ async def check_subscription(client: Client, user_id: int, channel_id: Union[str
         logger.exception(f"Error checking subscription for {user_id} in {channel_id}: {e}")
         return False
 
-async def check_loop_sub(client, message):
-    count = 0
-    while count < 15:
-        check = await is_requested_one(client, message)
-        check2 = await is_requested_two(client, message)
-        count += 1
-        if check and check2:
+async def check_channel_membership(client, user_id: int, channel_id: int, slot: int) -> bool:
+    """Helper to check membership status with cache, DB, and GetParticipant API fallback."""
+    if not user_id or not channel_id:
+        return True
+    if user_id in ADMINS:
+        return True
+
+    # 1. Check in-memory TTL cache
+    cached = MEMBERSHIP_CACHE.get(user_id, channel_id)
+    if cached is not None:
+        return cached
+
+    # 2. Check Database join-request tables
+    try:
+        if slot == 1:
+            db_user = await db.get_req_one(user_id)
+        elif slot == 2:
+            db_user = await db.get_req_two(user_id)
+        elif slot == 3:
+            db_user = await db.get_req_three(user_id)
+        else:
+            db_user = None
+
+        if db_user:
+            MEMBERSHIP_CACHE.set(user_id, channel_id, True)
             return True
-        await asyncio.sleep(1.5)
+    except Exception as e:
+        logger.debug(f"DB check error for slot {slot}: {e}")
+
+    # 3. Call Telegram get_chat_member (GetParticipant)
+    GLOBAL_METRICS.inc("get_participant")
+    try:
+        member = await client.get_chat_member(int(channel_id), user_id)
+        is_joined = (member.status not in (enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED))
+        MEMBERSHIP_CACHE.set(user_id, channel_id, is_joined)
+        return is_joined
+    except UserNotParticipant:
+        MEMBERSHIP_CACHE.set(user_id, channel_id, False)
+        return False
+    except FloodWait as e:
+        logger.warning(f"FloodWait in get_chat_member({channel_id}, {user_id}): {e.value}s")
+        GLOBAL_METRICS.inc("flood_wait_events")
+        MEMBERSHIP_CACHE.set(user_id, channel_id, False)
+        return False
+    except Exception as e:
+        logger.debug(f"Error checking chat member for {user_id} in {channel_id}: {e}")
+        MEMBERSHIP_CACHE.set(user_id, channel_id, False)
+        return False
+
+async def is_requested_one(self, message_or_user):
+    user_id = message_or_user if isinstance(message_or_user, int) else (getattr(message_or_user, "from_user", None) and message_or_user.from_user.id)
+    if not user_id:
+        return False
+    if not temp.REQ_CHANNEL1:
+        return True
+    return await check_channel_membership(self, user_id, temp.REQ_CHANNEL1, slot=1)
+
+async def is_requested_two(self, message_or_user):
+    user_id = message_or_user if isinstance(message_or_user, int) else (getattr(message_or_user, "from_user", None) and message_or_user.from_user.id)
+    if not user_id:
+        return False
+    if not temp.REQ_CHANNEL2:
+        return True
+    return await check_channel_membership(self, user_id, temp.REQ_CHANNEL2, slot=2)
+
+async def is_requested_three(self, message_or_user):
+    user_id = message_or_user if isinstance(message_or_user, int) else (getattr(message_or_user, "from_user", None) and message_or_user.from_user.id)
+    if not user_id:
+        return False
+    if not temp.REQ_CHANNEL3:
+        return True
+    return await check_channel_membership(self, user_id, temp.REQ_CHANNEL3, slot=3)
+
+async def check_loop_sub(client, message):
+    if not message.from_user:
+        return False
+    user_id = message.from_user.id
+    for _ in range(8):
+        c1, c2 = await asyncio.gather(
+            is_requested_one(client, user_id),
+            is_requested_two(client, user_id)
+        )
+        if c1 and c2:
+            return True
+        await asyncio.sleep(2.0)
     return False
 
 async def check_loop_sub1(client, message):
-    count = 0
-    while count < 15:
-        if await is_requested_one(client, message):
+    if not message.from_user:
+        return False
+    user_id = message.from_user.id
+    for _ in range(8):
+        if await is_requested_one(client, user_id):
             return True
-        count += 1
-        await asyncio.sleep(1)
+        await asyncio.sleep(2.0)
     return False
 
 async def check_loop_sub2(client, message):
-    count = 0
-    while count < 15:
-        if await is_requested_two(client, message):
+    if not message.from_user:
+        return False
+    user_id = message.from_user.id
+    for _ in range(8):
+        if await is_requested_two(client, user_id):
             return True
-        count += 1
-        await asyncio.sleep(1)
+        await asyncio.sleep(2.0)
     return False
 
 async def check_loop_sub3(client, message):
-    count = 0
-    while count < 15:
-        if await is_requested_three(client, message):
+    if not message.from_user:
+        return False
+    user_id = message.from_user.id
+    for _ in range(8):
+        if await is_requested_three(client, user_id):
             return True
-        count += 1
-        await asyncio.sleep(1)
+        await asyncio.sleep(2.0)
     return False
 
-async def build_dynamic_fsub_keyboard(client, user_id: int, file_id: str = None):
+async def build_dynamic_fsub_keyboard(client, user_id: int, file_id: str = None) -> Tuple[InlineKeyboardMarkup, List[int]]:
     """
     Dynamically constructs Force Subscribe InlineKeyboardMarkup.
     Hides buttons for channels the user has already joined.
-    - First checks Channel 1 and Channel 2.
+    - Concurrently checks Channel 1 and Channel 2.
     - If Channel 1 and Channel 2 are BOTH joined, checks Channel 3.
     Returns (InlineKeyboardMarkup, unjoined_channels_list).
     """
     buttons = []
     unjoined_channels = []
 
-    class DummyUser:
-        def __init__(self, uid):
-            self.id = uid
-    class DummyMsg:
-        def __init__(self, uid):
-            self.from_user = DummyUser(uid)
-
-    dummy_msg = DummyMsg(user_id)
-
-    # 1. Check Channel 1
-    ch1_joined = True
+    # Parallelize Channel 1 & Channel 2 checks
+    tasks = []
     if temp.REQ_CHANNEL1:
-        ch1_joined = await is_requested_one(client, dummy_msg)
-        if not ch1_joined:
-            unjoined_channels.append(temp.REQ_CHANNEL1)
-            req_link1 = getattr(client, 'req_link1', None) or getattr(temp, 'req_link1', '')
-            buttons.append([
-                InlineKeyboardButton("💐 Rᴇǫᴜᴇsᴛ Tᴏ Jᴏɪɴ Cʜᴀɴɴᴇʟ 1 💐", url=req_link1)
-            ])
+        tasks.append(is_requested_one(client, user_id))
+    else:
+        tasks.append(asyncio.sleep(0, result=True))
 
-    # 2. Check Channel 2
-    ch2_joined = True
     if temp.REQ_CHANNEL2:
-        ch2_joined = await is_requested_two(client, dummy_msg)
-        if not ch2_joined:
-            unjoined_channels.append(temp.REQ_CHANNEL2)
-            req_link2 = getattr(client, 'req_link2', None) or getattr(temp, 'req_link2', '')
-            buttons.append([
-                InlineKeyboardButton("⚡ RᴇǫᴜESᴛ Tᴏ Jᴏɪɴ Cʜᴀɴɴᴇʟ 2 ⚡", url=req_link2)
-            ])
+        tasks.append(is_requested_two(client, user_id))
+    else:
+        tasks.append(asyncio.sleep(0, result=True))
 
-    # 3. Check Channel 3 if Ch1 and Ch2 are both joined
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    ch1_joined = results[0] if not isinstance(results[0], Exception) else False
+    ch2_joined = results[1] if not isinstance(results[1], Exception) else False
+
+    if temp.REQ_CHANNEL1 and not ch1_joined:
+        unjoined_channels.append(temp.REQ_CHANNEL1)
+        req_link1 = getattr(client, 'req_link1', None) or getattr(temp, 'req_link1', '')
+        buttons.append([
+            InlineKeyboardButton("💐 Rᴇǫᴜᴇsᴛ Tᴏ Jᴏɪɴ Cʜᴀɴɴᴇʟ 1 💐", url=req_link1)
+        ])
+
+    if temp.REQ_CHANNEL2 and not ch2_joined:
+        unjoined_channels.append(temp.REQ_CHANNEL2)
+        req_link2 = getattr(client, 'req_link2', None) or getattr(temp, 'req_link2', '')
+        buttons.append([
+            InlineKeyboardButton("⚡ RᴇǫᴜESᴛ Tᴏ Jᴏɪɴ Cʜᴀɴɴᴇʟ 2 ⚡", url=req_link2)
+        ])
+
+    # 3. Check Channel 3 only if Channel 1 and Channel 2 are BOTH joined
     if ch1_joined and ch2_joined and temp.REQ_CHANNEL3:
-        ch3_joined = await is_requested_three(client, dummy_msg)
+        ch3_joined = await is_requested_three(client, user_id)
         if not ch3_joined:
             unjoined_channels.append(temp.REQ_CHANNEL3)
             req_link3 = getattr(client, 'req_link3', None) or getattr(temp, 'req_link3', '')
@@ -346,103 +685,72 @@ async def build_dynamic_fsub_keyboard(client, user_id: int, file_id: str = None)
 
     return InlineKeyboardMarkup(buttons), unjoined_channels
 
+_ACTIVE_FSUB_TASKS = {}
+
 async def check_loop_sub_dynamic(client, message, file_id: str = None, prompt_msg = None):
     """
     Periodically checks user subscription status in background loop,
-    updating prompt_msg reply_markup dynamically as user joins channels.
+    updating prompt_msg reply_markup dynamically only when channel status changes.
+    Prevents duplicate loops per user and redundant Telegram edit operations.
     """
     if not message.from_user:
         return False
     user_id = message.from_user.id
+
+    # Deduplicate: If a loop is already running for this user, cancel it
+    existing_task = _ACTIVE_FSUB_TASKS.get(user_id)
+    if existing_task and not existing_task.done():
+        existing_task.cancel()
+        try:
+            await existing_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    current_task = asyncio.current_task()
+    _ACTIVE_FSUB_TASKS[user_id] = current_task
+
+    last_unjoined_signature = None
     count = 0
-    while count < 15:
-        reply_markup, unjoined = await build_dynamic_fsub_keyboard(client, user_id, file_id=file_id)
-        if not unjoined:
-            return True
+    max_count = 10  # 10 iterations max (20s total)
 
-        if prompt_msg:
-            try:
-                await prompt_msg.edit_reply_markup(reply_markup=reply_markup)
-            except MessageNotModified:
-                pass
-            except Exception as e:
-                logger.debug(f"Dynamic loop edit_reply_markup error: {e}")
-
-        count += 1
-        await asyncio.sleep(1.5)
-
-    return False
-
-
-
-async def is_requested_one(self , message):
-    if not message.from_user:
-        return False
-    user = await db.get_req_one(int(message.from_user.id))
-    if user:
-        return True
-    if message.from_user.id in ADMINS:
-        return True
     try:
-        user = await self.get_chat_member(int(temp.REQ_CHANNEL1), message.from_user.id)
-    except UserNotParticipant:
-        pass
-    except Exception as e:
-        logger.exception(e)
-        pass
-    else:
-        if not (user.status == enums.ChatMemberStatus.BANNED):
-            return True
-        else:
-            pass
-    return False
-    
-async def is_requested_two(self, message):
-    if not message.from_user:
-        return False
-    user = await db.get_req_two(int(message.from_user.id))
-    if user:
-        return True
-    if message.from_user.id in ADMINS:
-        return True
-    try:
-        user = await self.get_chat_member(int(temp.REQ_CHANNEL2), message.from_user.id)
-    except UserNotParticipant:
-        pass
-    except Exception as e:
-        logger.exception(e)
-        pass
-    else:
-        if not (user.status == enums.ChatMemberStatus.BANNED):
-            return True
-        else:
-            pass
-    return False
+        while count < max_count:
+            reply_markup, unjoined = await build_dynamic_fsub_keyboard(client, user_id, file_id=file_id)
+            if not unjoined:
+                return True
 
-async def is_requested_three(self, message):
-    if not message.from_user:
+            unjoined_signature = tuple(unjoined)
+            if prompt_msg and unjoined_signature != last_unjoined_signature:
+                last_unjoined_signature = unjoined_signature
+                try:
+                    GLOBAL_METRICS.inc("edit_message")
+                    await prompt_msg.edit_reply_markup(reply_markup=reply_markup)
+                except MessageNotModified:
+                    pass
+                except (MessageIdInvalid, QueryIdInvalid):
+                    # Prompt message was deleted or expired
+                    return False
+                except FloodWait as e:
+                    logger.warning(f"FloodWait in check_loop_sub_dynamic edit_reply_markup: {e.value}s")
+                    GLOBAL_METRICS.inc("flood_wait_events")
+                    if e.value <= 5:
+                        await asyncio.sleep(e.value + 0.5)
+                    else:
+                        return False
+                except Exception as e:
+                    logger.debug(f"Dynamic loop edit_reply_markup error: {e}")
+
+            count += 1
+            await asyncio.sleep(2.0)
+
         return False
-    user = await db.get_req_three(int(message.from_user.id))
-    if user:
-        return True
-    if message.from_user.id in ADMINS:
-        return True
-    try:
-        user = await self.get_chat_member(int(temp.REQ_CHANNEL3), message.from_user.id)
-    except UserNotParticipant:
-        pass
-    except Exception as e:
-        logger.exception(e)
-        pass
-    else:
-        if not (user.status == enums.ChatMemberStatus.BANNED):
-            return True
-        else:
-            pass
-    return False
+    finally:
+        if _ACTIVE_FSUB_TASKS.get(user_id) is current_task:
+            _ACTIVE_FSUB_TASKS.pop(user_id, None)
 
 async def is_subscribed(bot, query):
     try:
+        GLOBAL_METRICS.inc("get_participant")
         user = await bot.get_chat_member(AUTH_CHANNEL, query.from_user.id)
     except UserNotParticipant:
         pass

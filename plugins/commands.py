@@ -14,7 +14,14 @@ from Script import script
 from database.ia_filterdb import Media2, Media3, get_file_details, unpack_new_file_id
 from database.users_chats_db import db
 from info import ADMINS, LOG_CHANNEL, CUSTOM_FILE_CAPTION, AUTO_DEL, PICS, PROTECT_CONTENT
-from utils import get_size, is_requested_one, is_requested_two, is_requested_three, temp, check_loop_sub, check_loop_sub1, check_loop_sub2, check_loop_sub3, get_stream_buttons, get_stream_buttons_async, build_dynamic_fsub_keyboard, check_loop_sub_dynamic, safe_b64decode, format_time_str, parse_time_to_seconds, add_auto_delete_message, track_bot_message, clean_all_trash
+from utils import (
+    get_size, is_requested_one, is_requested_two, is_requested_three, temp, 
+    check_loop_sub, check_loop_sub1, check_loop_sub2, check_loop_sub3, 
+    get_stream_buttons, get_stream_buttons_async, build_dynamic_fsub_keyboard, 
+    check_loop_sub_dynamic, safe_b64decode, format_time_str, parse_time_to_seconds, 
+    add_auto_delete_message, track_bot_message, clean_all_trash,
+    safe_delete_message, safe_edit_message_text, safe_edit_reply_markup
+)
 from sql.db import delete_all_files_sql, delete_file_sql, get_search_results
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -347,12 +354,12 @@ async def start(client, message):
                     await add_auto_delete_message(message.chat.id, del_notice.id, temp.FILE_DEL_TIME, msg_type="delete_txt")
                     await asyncio.sleep(1)
                 except FloodWait as e:
-                    await asyncio.sleep(e.x)
+                    await asyncio.sleep(getattr(e, 'value', getattr(e, 'x', 1)))
                 except Exception as e:
                     logger.warning(f"Send fail: {e}")
                     continue
 
-        return await sts.delete()
+        return await safe_delete_message(sts)
 
     files_ = await get_file_details(file_id)
     if not files_:

@@ -404,26 +404,44 @@ class SearchEngine:
         if not meaningful:
             return []
 
-        # Retrieve candidates from SQLite
+        # Retrieve candidates from SQLite using indexed LIKE queries
         where_clauses = []
         params = []
-        for word in meaningful[:4]:  # limit to top 4 tokens
+        for word in meaningful[:3]:  # Top 3 meaningful tokens
             where_clauses.append("file_name LIKE ?")
             params.append(f"%{word}%")
-            if len(word) >= 4:
-                prefix = word[:3]
-                where_clauses.append("file_name LIKE ?")
-                params.append(f"%{prefix}%")
+
+        if not where_clauses:
+            return []
 
         where_stmt = " OR ".join(where_clauses)
-        query = f"SELECT DISTINCT file_name FROM media WHERE {where_stmt} LIMIT 150"
+        query = f"SELECT DISTINCT file_name FROM media WHERE {where_stmt} LIMIT 60"
 
         candidate_rows = []
         try:
             async with db_conn.execute(query, tuple(params)) as cursor:
                 candidate_rows = await cursor.fetchall()
         except Exception:
-            # Fallback if error
+            candidate_rows = []
+
+        if not candidate_rows:
+            # Fallback 1: Prefix LIKE (e.g. 4-character root) for typo resilience
+            prefix_clauses = []
+            prefix_params = []
+            for word in meaningful[:3]:
+                if len(word) >= 4:
+                    prefix_clauses.append("file_name LIKE ?")
+                    prefix_params.append(f"%{word[:4]}%")
+            if prefix_clauses:
+                prefix_stmt = " OR ".join(prefix_clauses)
+                try:
+                    async with db_conn.execute(f"SELECT DISTINCT file_name FROM media WHERE {prefix_stmt} LIMIT 60", tuple(prefix_params)) as cursor:
+                        candidate_rows = await cursor.fetchall()
+                except Exception:
+                    candidate_rows = []
+
+        if not candidate_rows:
+            # Fallback 2: Recent media sample
             try:
                 async with db_conn.execute("SELECT DISTINCT file_name FROM media ORDER BY date_saved DESC LIMIT 100") as cursor:
                     candidate_rows = await cursor.fetchall()

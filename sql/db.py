@@ -73,15 +73,39 @@ _global_aiosqlite_connection: Optional[aiosqlite.Connection] = None
 _connection_lock = asyncio.Lock()
 
 async def init_aiosqlite_connection(db_path: Optional[str] = None):
-    """Initializes a single, reusable aiosqlite connection."""
+    """Initializes a single, reusable aiosqlite connection with optimal pragmas and indexes."""
     global _global_aiosqlite_connection
     if db_path is None:
         db_path = SQLITE_DB
     async with _connection_lock:
         if _global_aiosqlite_connection is None:
             _global_aiosqlite_connection = await aiosqlite.connect(db_path)
+            await _global_aiosqlite_connection.execute("PRAGMA journal_mode = WAL;")
+            await _global_aiosqlite_connection.execute("PRAGMA synchronous = NORMAL;")
+            await _global_aiosqlite_connection.execute("PRAGMA cache_size = -64000;")
+            await _global_aiosqlite_connection.execute("PRAGMA mmap_size = 268435456;")
+            await _global_aiosqlite_connection.execute("PRAGMA temp_store = MEMORY;")
             await _global_aiosqlite_connection.execute("PRAGMA foreign_keys = ON;")
-            logging.info(f"aiosqlite connection opened to {db_path}")
+            
+            # Ensure schema & performance indexes exist
+            await _global_aiosqlite_connection.execute("""
+                CREATE TABLE IF NOT EXISTS media (
+                    file_id TEXT PRIMARY KEY,
+                    file_ref TEXT,
+                    file_name TEXT,
+                    file_size INTEGER,
+                    size TEXT,
+                    file_type TEXT,
+                    mime_type TEXT,
+                    caption TEXT,
+                    date_saved TIMESTAMP
+                )
+            """)
+            await _global_aiosqlite_connection.execute("CREATE INDEX IF NOT EXISTS idx_media_file_name ON media (file_name);")
+            await _global_aiosqlite_connection.execute("CREATE INDEX IF NOT EXISTS idx_media_caption ON media (caption);")
+            await _global_aiosqlite_connection.execute("CREATE INDEX IF NOT EXISTS idx_date_saved ON media (date_saved);")
+            await _global_aiosqlite_connection.commit()
+            logging.info(f"aiosqlite connection opened with WAL and indexes to {db_path}")
         return _global_aiosqlite_connection
 
 async def ensure_aiosqlite_connection() -> aiosqlite.Connection:
@@ -124,10 +148,11 @@ async def check_data_exists(table_name: str) -> bool:
 
 async def set_sqlite_pragmas(db: aiosqlite.Connection):
     """Sets optimal PRAGMA settings for fast bulk inserts."""
-    # Use WAL mode and reduced sync for maximal write throughput during migration
     await db.execute("PRAGMA journal_mode = WAL;")
     await db.execute("PRAGMA synchronous = NORMAL;")
-    await db.execute("PRAGMA locking_mode = EXCLUSIVE;")
+    await db.execute("PRAGMA cache_size = -64000;")
+    await db.execute("PRAGMA mmap_size = 268435456;")
+    await db.execute("PRAGMA temp_store = MEMORY;")
     await db.commit()
     logging.info("🚀 Set fast PRAGMA settings for SQLite.")
 
@@ -149,7 +174,7 @@ async def migrate_to_sql():
     logging.info("🚀 Starting multi-database migration with high-speed optimizations...")
     sql_db = await ensure_aiosqlite_connection()
 
-    # Create table if it doesn't exist
+    # Create table & indexes if they don't exist
     await sql_db.execute("""
         CREATE TABLE IF NOT EXISTS media (
             file_id TEXT PRIMARY KEY,
@@ -163,6 +188,8 @@ async def migrate_to_sql():
             date_saved TIMESTAMP
         )
     """)
+    await sql_db.execute("CREATE INDEX IF NOT EXISTS idx_media_file_name ON media (file_name);")
+    await sql_db.execute("CREATE INDEX IF NOT EXISTS idx_media_caption ON media (caption);")
     await sql_db.execute("CREATE INDEX IF NOT EXISTS idx_date_saved ON media (date_saved);")
     await sql_db.commit()
 
