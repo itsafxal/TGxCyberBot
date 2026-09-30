@@ -1,18 +1,25 @@
-git+https://github.com/KurimuzonAkuma/kurigram
+Kurigram==2.2.26
+
 TgCrypto; sys_platform != 'win32'
+
 aiohttp
 aiosqlite
+
 pymongo[srv]==4.9.2
 motor==3.6.0
 marshmallow==3.19.0
 umongo==3.1.0
 odmantic
+
 requests
 bs4
+
 APScheduler==3.10.4
 psutil
 python-dotenv
 pytz
 aiofiles
+
 uvloop==0.21.0; sys_platform != 'win32'
+
 httpx
