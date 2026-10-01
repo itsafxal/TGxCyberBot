@@ -404,28 +404,49 @@ class SearchEngine:
         if not meaningful:
             return []
 
-        # Retrieve candidates from SQLite using indexed LIKE queries
-        where_clauses = []
-        params = []
-        for word in meaningful[:3]:  # Top 3 meaningful tokens
-            where_clauses.append("file_name LIKE ?")
-            params.append(f"%{word}%")
-
-        if not where_clauses:
-            return []
-
-        where_stmt = " OR ".join(where_clauses)
-        query = f"SELECT DISTINCT file_name FROM media WHERE {where_stmt} LIMIT 60"
-
         candidate_rows = []
-        try:
-            async with db_conn.execute(query, tuple(params)) as cursor:
-                candidate_rows = await cursor.fetchall()
-        except Exception:
-            candidate_rows = []
+        # Strategy 1: FTS5 Trigram MATCH for instant candidate retrieval (< 1ms)
+        fts_clauses = [f'"{w}"' for w in meaningful[:3] if len(w) >= 2]
+        if fts_clauses:
+            fts_expr = " OR ".join(fts_clauses)
+            fts_query = """
+                SELECT DISTINCT m.file_name
+                FROM media_fts f
+                JOIN media m ON f.rowid = m.rowid
+                WHERE media_fts MATCH ?
+                LIMIT 60
+            """
+            try:
+                if hasattr(db_conn, "execute_read"):
+                    candidate_rows, _ = await db_conn.execute_read(fts_query, (fts_expr,))
+                else:
+                    async with db_conn.execute(fts_query, (fts_expr,)) as cursor:
+                        candidate_rows = await cursor.fetchall()
+            except Exception:
+                candidate_rows = []
+
+        # Strategy 2: Indexed LIKE candidate fallback
+        if not candidate_rows:
+            where_clauses = []
+            params = []
+            for word in meaningful[:3]:  # Top 3 meaningful tokens
+                where_clauses.append("file_name LIKE ?")
+                params.append(f"%{word}%")
+
+            if where_clauses:
+                where_stmt = " OR ".join(where_clauses)
+                query = f"SELECT DISTINCT file_name FROM media WHERE {where_stmt} LIMIT 60"
+                try:
+                    if hasattr(db_conn, "execute_read"):
+                        candidate_rows, _ = await db_conn.execute_read(query, tuple(params))
+                    else:
+                        async with db_conn.execute(query, tuple(params)) as cursor:
+                            candidate_rows = await cursor.fetchall()
+                except Exception:
+                    candidate_rows = []
 
         if not candidate_rows:
-            # Fallback 1: Prefix LIKE (e.g. 4-character root) for typo resilience
+            # Fallback 3: Prefix LIKE (e.g. 4-character root) for typo resilience
             prefix_clauses = []
             prefix_params = []
             for word in meaningful[:3]:
@@ -434,9 +455,13 @@ class SearchEngine:
                     prefix_params.append(f"%{word[:4]}%")
             if prefix_clauses:
                 prefix_stmt = " OR ".join(prefix_clauses)
+                query = f"SELECT DISTINCT file_name FROM media WHERE {prefix_stmt} LIMIT 60"
                 try:
-                    async with db_conn.execute(f"SELECT DISTINCT file_name FROM media WHERE {prefix_stmt} LIMIT 60", tuple(prefix_params)) as cursor:
-                        candidate_rows = await cursor.fetchall()
+                    if hasattr(db_conn, "execute_read"):
+                        candidate_rows, _ = await db_conn.execute_read(query, tuple(prefix_params))
+                    else:
+                        async with db_conn.execute(query, tuple(prefix_params)) as cursor:
+                            candidate_rows = await cursor.fetchall()
                 except Exception:
                     candidate_rows = []
 

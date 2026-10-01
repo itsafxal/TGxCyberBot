@@ -1,13 +1,18 @@
 import asyncio
 import logging
+import sqlite3
 import aiosqlite
 import datetime
 import pytz
 import re
 import difflib
 import aiohttp
-from collections import defaultdict
-from typing import Tuple, List, Optional
+import time
+import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from collections import OrderedDict, defaultdict
+from typing import Tuple, List, Optional, Dict, Any
 
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -20,9 +25,8 @@ from search_engine import SearchEngine, QueryNormalizer
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Optimization: Increased batch size for fewer DB calls
 BATCH_SIZE = 10000
-SUPER_BATCH_SIZE = 100000  # Commit every 100,000 files to prevent single massive transaction
+SUPER_BATCH_SIZE = 100000
 
 GENERIC_STOPWORDS = {
     "the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "of", "with", "by", "from",
@@ -31,37 +35,46 @@ GENERIC_STOPWORDS = {
     "1080p", "720p", "480p", "2160p", "4k", "hindi", "tamil", "telugu", "malayalam", "kannada", "english"
 }
 
-# --- Database Clients ---
 SQLITE_DB = f"media_{BOT_TOKEN}.sqlite3"
 
-from collections import OrderedDict
-import time
-
+# --- LRU Cache ---
 class LRUCache:
-    def __init__(self, max_size=1000, ttl=3600):
+    def __init__(self, max_size=2000, ttl=3600):
         self.cache = OrderedDict()
         self.max_size = max_size
         self.ttl = ttl
+        self._lock = threading.Lock()
 
     def get(self, key):
-        if key in self.cache:
-            val, timestamp = self.cache[key]
-            if time.time() - timestamp < self.ttl:
-                self.cache.move_to_end(key)
-                return val
-            else:
-                del self.cache[key]
-        return None
+        with self._lock:
+            if key in self.cache:
+                val, timestamp = self.cache[key]
+                if time.time() - timestamp < self.ttl:
+                    self.cache.move_to_end(key)
+                    return val
+                else:
+                    del self.cache[key]
+            return None
 
     def set(self, key, val):
-        if key in self.cache:
-            self.cache.move_to_end(key)
-        self.cache[key] = (val, time.time())
-        if len(self.cache) > self.max_size:
-            self.cache.popitem(last=False)
+        with self._lock:
+            if key in self.cache:
+                self.cache.move_to_end(key)
+            self.cache[key] = (val, time.time())
+            if len(self.cache) > self.max_size:
+                self.cache.popitem(last=False)
+
+    def clear(self):
+        with self._lock:
+            self.cache.clear()
 
 IMDB_CACHE = LRUCache(max_size=1000, ttl=86400)
-SEARCH_RESULT_CACHE = LRUCache(max_size=2000, ttl=300)
+SEARCH_RESULT_CACHE = LRUCache(max_size=5000, ttl=300)
+SUGGESTION_CACHE = LRUCache(max_size=2000, ttl=600)
+
+# Anti-stampede in-flight deduplicator
+_IN_FLIGHT_SEARCHES: Dict[str, asyncio.Future] = {}
+_STAMPEDE_LOCK = asyncio.Lock()
 
 client2 = AsyncIOMotorClient(DATABASE_URI2)
 db2 = client2[DATABASE_NAME]
@@ -74,27 +87,182 @@ COLLECTIONS_TO_MIGRATE = [
     {"db": db2, "collection_name": COLLECTION_NAME},
 ]
 
-# --- Global SQLite Connection Manager ---
+
+# --- High-Performance Multi-Reader SQLite Pool ---
+class SQLitePoolManager:
+    """
+    Manages concurrent SQLite access using WAL mode.
+    - Reader pool: 16 background threads with thread-local persistent connections.
+    - Single writer lock: serializes database mutations to avoid lock collisions.
+    - Zero global reader blocking.
+    """
+    def __init__(self, db_path: str = SQLITE_DB, max_readers: int = 16):
+        self.db_path = db_path
+        self.max_readers = max_readers
+        self.executor = ThreadPoolExecutor(max_workers=max_readers, thread_name_prefix="sqlite_reader")
+        self._local_conns: Dict[int, sqlite3.Connection] = {}
+        self._conns_lock = threading.Lock()
+        self._write_lock = asyncio.Lock()
+        self._is_memory = (db_path == ":memory:")
+        self._mem_conn = None
+        if self._is_memory:
+            self._mem_conn = sqlite3.connect(":memory:", check_same_thread=False, timeout=10.0)
+            self._mem_conn.execute("PRAGMA foreign_keys = ON;")
+
+    def _get_thread_connection(self) -> sqlite3.Connection:
+        if self._is_memory:
+            return self._mem_conn
+        t_id = threading.get_ident()
+        with self._conns_lock:
+            conn = self._local_conns.get(t_id)
+            if conn is None:
+                conn = sqlite3.connect(
+                    self.db_path,
+                    timeout=10.0,
+                    check_same_thread=False,
+                    isolation_level=None  # autocommit mode for readers
+                )
+                conn.execute("PRAGMA journal_mode = WAL;")
+                conn.execute("PRAGMA synchronous = NORMAL;")
+                conn.execute("PRAGMA busy_timeout = 10000;")
+                conn.execute("PRAGMA cache_size = -64000;")
+                conn.execute("PRAGMA mmap_size = 268435456;")
+                conn.execute("PRAGMA temp_store = MEMORY;")
+                self._local_conns[t_id] = conn
+            return conn
+
+    async def execute_read(self, sql: str, params: tuple = ()) -> Tuple[List[Any], Dict[str, float]]:
+        """Executes a read query in the thread pool (or memory connection) and collects detailed metrics."""
+        t_acquire_start = time.perf_counter()
+        if self._is_memory:
+            global _global_aiosqlite_connection
+            t_exec_start = time.perf_counter()
+            async with _global_aiosqlite_connection.execute(sql, params) as cursor:
+                rows = await cursor.fetchall()
+            t_fetch_end = time.perf_counter()
+            metrics = {
+                "conn_wait_ms": (t_exec_start - t_acquire_start) * 1000,
+                "sql_exec_ms": (t_fetch_end - t_exec_start) * 1000,
+                "sql_fetch_ms": 0.0,
+                "row_count": len(rows)
+            }
+            return rows, metrics
+
+        loop = asyncio.get_running_loop()
+
+        def _worker():
+            t_worker_start = time.perf_counter()
+            conn_wait_ms = (t_worker_start - t_acquire_start) * 1000
+            conn = self._get_thread_connection()
+            cur = conn.cursor()
+            t_exec_start = time.perf_counter()
+            cur.execute(sql, params)
+            t_exec_end = time.perf_counter()
+            rows = cur.fetchall()
+            t_fetch_end = time.perf_counter()
+
+            metrics = {
+                "conn_wait_ms": conn_wait_ms,
+                "sql_exec_ms": (t_exec_end - t_exec_start) * 1000,
+                "sql_fetch_ms": (t_fetch_end - t_exec_end) * 1000,
+                "row_count": len(rows)
+            }
+            return rows, metrics
+
+        return await loop.run_in_executor(self.executor, _worker)
+
+    async def execute_write(self, func, *args, **kwargs):
+        """Executes a write operation under an async lock to prevent write-lock collisions."""
+        t_lock_start = time.perf_counter()
+        async with self._write_lock:
+            lock_wait_ms = (time.perf_counter() - t_lock_start) * 1000
+            
+            if self._is_memory:
+                global _global_aiosqlite_connection
+                raw_conn = _global_aiosqlite_connection._conn
+                result = func(raw_conn, *args, **kwargs)
+                await _global_aiosqlite_connection.commit()
+                return result, {"lock_wait_ms": lock_wait_ms, "sql_exec_ms": 0.0}
+
+            loop = asyncio.get_running_loop()
+            
+            def _write_worker():
+                t_exec_start = time.perf_counter()
+                conn = sqlite3.connect(
+                    self.db_path,
+                    timeout=20.0,
+                    check_same_thread=False
+                )
+                conn.execute("PRAGMA journal_mode = WAL;")
+                conn.execute("PRAGMA synchronous = NORMAL;")
+                conn.execute("PRAGMA busy_timeout = 15000;")
+
+                try:
+                    conn.execute("BEGIN IMMEDIATE;")
+                    result = func(conn, *args, **kwargs)
+                    conn.commit()
+                    t_exec_end = time.perf_counter()
+                    metrics = {
+                        "lock_wait_ms": lock_wait_ms,
+                        "sql_exec_ms": (t_exec_end - t_exec_start) * 1000
+                    }
+                    return result, metrics
+                except Exception as e:
+                    conn.rollback()
+                    raise e
+                finally:
+                    conn.close()
+
+            return await loop.run_in_executor(self.executor, _write_worker)
+
+    def close(self):
+        with self._conns_lock:
+            for conn in self._local_conns.values():
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            self._local_conns.clear()
+        self.executor.shutdown(wait=False)
+
+# Global pool instance
+_DB_POOL: Optional[SQLitePoolManager] = None
 _global_aiosqlite_connection: Optional[aiosqlite.Connection] = None
 _connection_lock = asyncio.Lock()
 
+
 async def init_aiosqlite_connection(db_path: Optional[str] = None):
-    """Initializes a single, reusable aiosqlite connection with optimal pragmas and indexes."""
-    global _global_aiosqlite_connection
+    """Initializes SQLite schema, FTS5 virtual tables, triggers, and reader pool."""
+    global _global_aiosqlite_connection, _DB_POOL
     if db_path is None:
         db_path = SQLITE_DB
+
     async with _connection_lock:
+        if _DB_POOL is not None and (db_path and _DB_POOL.db_path != db_path):
+            _DB_POOL.close()
+            _DB_POOL = None
+        if _global_aiosqlite_connection is not None and db_path and db_path == ":memory:":
+            try:
+                await _global_aiosqlite_connection.close()
+            except Exception:
+                pass
+            _global_aiosqlite_connection = None
+
+        if _DB_POOL is None:
+            _DB_POOL = SQLitePoolManager(db_path=db_path)
+
         if _global_aiosqlite_connection is None:
             _global_aiosqlite_connection = await aiosqlite.connect(db_path)
-            await _global_aiosqlite_connection.execute("PRAGMA journal_mode = WAL;")
-            await _global_aiosqlite_connection.execute("PRAGMA synchronous = NORMAL;")
-            await _global_aiosqlite_connection.execute("PRAGMA busy_timeout = 10000;")
-            await _global_aiosqlite_connection.execute("PRAGMA cache_size = -64000;")
-            await _global_aiosqlite_connection.execute("PRAGMA mmap_size = 268435456;")
-            await _global_aiosqlite_connection.execute("PRAGMA temp_store = MEMORY;")
+            if db_path != ":memory:":
+                await _global_aiosqlite_connection.execute("PRAGMA journal_mode = WAL;")
+                await _global_aiosqlite_connection.execute("PRAGMA synchronous = NORMAL;")
+                await _global_aiosqlite_connection.execute("PRAGMA busy_timeout = 10000;")
+                await _global_aiosqlite_connection.execute("PRAGMA cache_size = -64000;")
+                await _global_aiosqlite_connection.execute("PRAGMA mmap_size = 268435456;")
+                await _global_aiosqlite_connection.execute("PRAGMA temp_store = MEMORY;")
             await _global_aiosqlite_connection.execute("PRAGMA foreign_keys = ON;")
             
-            # Ensure schema & performance indexes exist
+            # 1. Base media table
             await _global_aiosqlite_connection.execute("""
                 CREATE TABLE IF NOT EXISTS media (
                     file_id TEXT PRIMARY KEY,
@@ -112,60 +280,99 @@ async def init_aiosqlite_connection(db_path: Optional[str] = None):
             await _global_aiosqlite_connection.execute("CREATE INDEX IF NOT EXISTS idx_media_caption ON media (caption);")
             await _global_aiosqlite_connection.execute("CREATE INDEX IF NOT EXISTS idx_date_saved ON media (date_saved);")
             await _global_aiosqlite_connection.execute("CREATE INDEX IF NOT EXISTS idx_media_date_name ON media (date_saved DESC, file_name);")
+            
+            # 2. High-speed FTS5 virtual table for sub-millisecond substring/trigram searches
+            try:
+                await _global_aiosqlite_connection.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS media_fts USING fts5(
+                        file_name, caption, content='media', content_rowid='rowid', tokenize='trigram'
+                    );
+                """)
+                # Auto-sync triggers for FTS5
+                await _global_aiosqlite_connection.execute("""
+                    CREATE TRIGGER IF NOT EXISTS media_ai AFTER INSERT ON media BEGIN
+                        INSERT INTO media_fts(rowid, file_name, caption) VALUES (new.rowid, new.file_name, new.caption);
+                    END;
+                """)
+                await _global_aiosqlite_connection.execute("""
+                    CREATE TRIGGER IF NOT EXISTS media_ad AFTER DELETE ON media BEGIN
+                        INSERT INTO media_fts(media_fts, rowid, file_name, caption) VALUES('delete', old.rowid, old.file_name, old.caption);
+                    END;
+                """)
+                await _global_aiosqlite_connection.execute("""
+                    CREATE TRIGGER IF NOT EXISTS media_au AFTER UPDATE ON media BEGIN
+                        INSERT INTO media_fts(media_fts, rowid, file_name, caption) VALUES('delete', old.rowid, old.file_name, old.caption);
+                        INSERT INTO media_fts(rowid, file_name, caption) VALUES (new.rowid, new.file_name, new.caption);
+                    END;
+                """)
+                
+                # Check if FTS needs initial population from media
+                async with _global_aiosqlite_connection.execute("SELECT COUNT(*) FROM media") as cur_m:
+                    m_count = (await cur_m.fetchone())[0]
+                if m_count > 0:
+                    async with _global_aiosqlite_connection.execute("SELECT COUNT(*) FROM media_fts") as cur_f:
+                        f_count = (await cur_f.fetchone())[0]
+                    if f_count == 0:
+                        logging.info(f"Rebuilding FTS5 index for {m_count} records...")
+                        await _global_aiosqlite_connection.execute("INSERT INTO media_fts(media_fts) VALUES('rebuild');")
+                        logging.info("FTS5 index build complete.")
+            except Exception as e:
+                logging.warning(f"FTS5 initialization warning: {e}")
+
             await _global_aiosqlite_connection.commit()
-            logging.info(f"aiosqlite connection opened with WAL and indexes to {db_path}")
+            logging.info(f"SQLite pool & aiosqlite connection opened with WAL and FTS5 to {db_path}")
+
         return _global_aiosqlite_connection
 
+
 async def ensure_aiosqlite_connection() -> aiosqlite.Connection:
-    """Ensures aiosqlite connection is initialized, auto-initializing if necessary."""
     if _global_aiosqlite_connection is None:
         await init_aiosqlite_connection()
     return _global_aiosqlite_connection
 
+
 async def close_aiosqlite_connection():
-    """Closes the global aiosqlite connection."""
-    global _global_aiosqlite_connection
+    global _global_aiosqlite_connection, _DB_POOL
     async with _connection_lock:
         if _global_aiosqlite_connection:
             await _global_aiosqlite_connection.close()
             _global_aiosqlite_connection = None
-            logging.info("aiosqlite connection closed.")
+        if _DB_POOL:
+            _DB_POOL.close()
+            _DB_POOL = None
+        logging.info("SQLite connections closed.")
+
 
 def get_aiosqlite_connection() -> aiosqlite.Connection:
-    """Gets the initialized aiosqlite connection, raising an error if not connected."""
     if _global_aiosqlite_connection is None:
         raise RuntimeError("aiosqlite connection is not initialized. Call init_aiosqlite_connection first.")
     return _global_aiosqlite_connection
 
-# --- Helper Functions ---
+
 async def check_table_exists(table_name: str) -> bool:
-    """Checks if a table exists in the SQLite database."""
     db = await ensure_aiosqlite_connection()
     async with db.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
     ) as cursor:
         return await cursor.fetchone() is not None
 
+
 async def check_data_exists(table_name: str) -> bool:
-    """Checks if a table contains any data."""
     db = await ensure_aiosqlite_connection()
     async with db.execute(f"SELECT 1 FROM {table_name} LIMIT 1") as cursor:
         return await cursor.fetchone() is not None
 
-# --- High-Speed Migration Functions ---
 
 async def set_sqlite_pragmas(db: aiosqlite.Connection):
-    """Sets optimal PRAGMA settings for fast bulk inserts."""
     await db.execute("PRAGMA journal_mode = WAL;")
     await db.execute("PRAGMA synchronous = NORMAL;")
     await db.execute("PRAGMA cache_size = -64000;")
     await db.execute("PRAGMA mmap_size = 268435456;")
     await db.execute("PRAGMA temp_store = MEMORY;")
     await db.commit()
-    logging.info("🚀 Set fast PRAGMA settings for SQLite.")
+
 
 async def insert_batch_no_commit(db, batch):
-    """Inserts a batch of data without committing, for use within a transaction."""
     await db.executemany("""
         INSERT OR REPLACE INTO media (
             file_id, file_ref, file_name, file_size, size,
@@ -173,44 +380,16 @@ async def insert_batch_no_commit(db, batch):
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, batch)
 
+
 async def migrate_to_sql():
-    """
-    Performs a high-speed migration from MongoDB to SQLite.
-    Uses batching, a single transaction per collection (broken up by SUPER_BATCH_SIZE),
-    and optimal PRAGMA settings.
-    """
     logging.info("🚀 Starting multi-database migration with high-speed optimizations...")
     sql_db = await ensure_aiosqlite_connection()
-
-    # Create table & indexes if they don't exist
-    await sql_db.execute("""
-        CREATE TABLE IF NOT EXISTS media (
-            file_id TEXT PRIMARY KEY,
-            file_ref TEXT,
-            file_name TEXT,
-            file_size INTEGER,
-            size TEXT,
-            file_type TEXT,
-            mime_type TEXT,
-            caption TEXT,
-            date_saved TIMESTAMP
-        )
-    """)
-    await sql_db.execute("CREATE INDEX IF NOT EXISTS idx_media_file_name ON media (file_name);")
-    await sql_db.execute("CREATE INDEX IF NOT EXISTS idx_media_caption ON media (caption);")
-    await sql_db.execute("CREATE INDEX IF NOT EXISTS idx_date_saved ON media (date_saved);")
-    await sql_db.commit()
-
-    # Apply performance settings for the migration
-    await set_sqlite_pragmas(sql_db)
-
     data_exists_in_table = await check_data_exists("media")
     if data_exists_in_table:
         logging.info("SQLite 'media' table already populated. Skipping full migration.")
         return
-    else:
-        logging.info("SQLite 'media' table is empty. Proceeding with full migration.")
 
+    logging.info("SQLite 'media' table is empty. Proceeding with full migration.")
     total_files_saved_across_all_sources = 0
     for item in COLLECTIONS_TO_MIGRATE:
         current_db = item["db"]
@@ -261,12 +440,20 @@ async def migrate_to_sql():
 
             await sql_db.commit()
             logging.info("  Final transaction committed successfully.")
-            logging.info(f"✅ Migration completed for '{current_collection_name}': {total_saved_current_collection} files saved.")
             total_files_saved_across_all_sources += total_saved_current_collection
 
         except Exception as e:
             await sql_db.rollback()
             logging.error(f"  ❌ An error occurred during migration: {e}. Transaction rolled back.", exc_info=True)
+
+    # Rebuild FTS5 index after bulk import
+    try:
+        logging.info("Rebuilding FTS5 index after migration...")
+        await sql_db.execute("INSERT INTO media_fts(media_fts) VALUES('rebuild');")
+        await sql_db.commit()
+        logging.info("FTS5 index rebuild complete.")
+    except Exception as e:
+        logging.warning(f"Post-migration FTS rebuild warning: {e}")
 
     logging.info(f"\n✨ Overall Migration Summary: {total_files_saved_across_all_sources} files saved across all specified sources.")
 
@@ -294,7 +481,6 @@ async def close_http_session():
         _EXTERNAL_HTTP_SESSION = None
 
 async def fetch_imdb_titles(search_query: str) -> List[str]:
-    """Fetches movie title candidates from IMDb suggestion API with OMDb fallback and LRU caching."""
     if not search_query or len(search_query.strip()) < 2:
         return []
     clean_q = re.sub(r'[^a-zA-Z0-9]+', '', search_query.strip().lower())
@@ -337,8 +523,8 @@ async def fetch_imdb_titles(search_query: str) -> List[str]:
     IMDB_CACHE.set(clean_q, [])
     return []
 
+
 def compute_accuracy_score(query: str, title: str) -> float:
-    """Computes similarity / accuracy score between search query and title with fast-paths."""
     q_raw = query.strip().lower()
     t_raw = title.strip().lower()
     if not q_raw or not t_raw:
@@ -401,77 +587,143 @@ def compute_accuracy_score(query: str, title: str) -> float:
     final_score = max(seq_ratio, compact_ratio, avg_word_score, jaccard_ratio) + max(compact_boost, contained_boost)
     return min(1.0, final_score)
 
-async def get_search_results(search_query: str, offset: int = 0) -> Tuple[List[dict], int]:
-    """
-    Searches the SQLite database for files matching the query with fast caching,
-    query normalization, 80% accuracy matching, and fuzzy fallback.
-    """
+
+# --- Core Search Engine Pipeline ---
+async def _execute_search_internal(search_query: str, offset: int = 0) -> Tuple[List[dict], int, Dict[str, Any]]:
+    """Internal search executor performing FTS5 trigram queries and collecting stage metrics."""
+    t_stage_start = time.perf_counter()
+    metrics = {
+        "cache_lookup_ms": 0.0,
+        "conn_wait_ms": 0.0,
+        "lock_wait_ms": 0.0,
+        "sql_exec_ms": 0.0,
+        "sql_fetch_ms": 0.0,
+        "spellcheck_ms": 0.0,
+        "fuzzy_ms": 0.0,
+        "result_build_ms": 0.0,
+        "total_db_stage_ms": 0.0,
+        "row_count": 0,
+        "strategy": "none"
+    }
+
     clean_search = re.sub(r'[\._\-\[\(\]\)]+', ' ', search_query.strip())
     clean_search = re.sub(r'\s+', ' ', clean_search).strip()
     if not clean_search:
-        return [], 0
+        metrics["total_db_stage_ms"] = (time.perf_counter() - t_stage_start) * 1000
+        return [], 0, metrics
 
-    cache_key = f"{clean_search.lower()}_{offset}"
-    cached = SEARCH_RESULT_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
+    await ensure_aiosqlite_connection()
+    pool = _DB_POOL
 
-    db = await ensure_aiosqlite_connection()
     search_terms = clean_search.split()
+    meaningful_terms = [t for t in search_terms if t.lower() not in GENERIC_STOPWORDS and len(t) >= 2]
+    terms_to_use = meaningful_terms if meaningful_terms else search_terms
 
-    # 1. Primary Search: Exact SQL LIKE query with AND
-    where_clauses = []
-    params = []
-    for term in search_terms:
-        where_clauses.append("(file_name LIKE ? OR caption LIKE ?)")
-        params.extend([f"%{term}%", f"%{term}%"])
+    # 1. Primary FTS5 Trigram MATCH (Boolean AND)
+    fts_terms = [f'"{term}"' for term in terms_to_use if len(term) >= 2]
+    rows = []
+    fts_attempted_and_ok = False
+    if fts_terms and pool:
+        fts_expr = " AND ".join(fts_terms)
+        query = """
+            SELECT m.file_id, m.file_name, m.size
+            FROM media_fts f
+            JOIN media m ON f.rowid = m.rowid
+            WHERE media_fts MATCH ?
+            ORDER BY m.date_saved DESC
+            LIMIT ? OFFSET ?
+        """
+        try:
+            rows, read_m = await pool.execute_read(query, (fts_expr, MAX_FILES + 1, offset))
+            metrics["conn_wait_ms"] += read_m["conn_wait_ms"]
+            metrics["sql_exec_ms"] += read_m["sql_exec_ms"]
+            metrics["sql_fetch_ms"] += read_m["sql_fetch_ms"]
+            metrics["strategy"] = "fts_and"
+            fts_attempted_and_ok = True
+        except Exception as e:
+            logger.debug(f"FTS5 primary query fallback: {e}")
+            rows = []
+            fts_attempted_and_ok = False
 
-    where_statement = " AND ".join(where_clauses)
-    query = f"""
-        SELECT file_id, file_name, size
-        FROM media
-        WHERE {where_statement}
-        ORDER BY date_saved DESC
-        LIMIT ? OFFSET ?
-    """
-    params.extend([MAX_FILES + 1, offset])
+    # Fallback to indexed LIKE ONLY if FTS was NOT available or threw an error
+    if not rows and not fts_attempted_and_ok and pool:
+        where_clauses = []
+        params = []
+        for term in terms_to_use[:4]:
+            where_clauses.append("(file_name LIKE ? OR caption LIKE ?)")
+            params.extend([f"%{term}%", f"%{term}%"])
 
-    async with db.execute(query, tuple(params)) as cursor:
-        rows = await cursor.fetchall()
+        if where_clauses:
+            where_statement = " AND ".join(where_clauses)
+            query = f"""
+                SELECT file_id, file_name, size
+                FROM media
+                WHERE {where_statement}
+                ORDER BY date_saved DESC
+                LIMIT ? OFFSET ?
+            """
+            params.extend([MAX_FILES + 1, offset])
+            try:
+                rows, read_m = await pool.execute_read(query, tuple(params))
+                metrics["conn_wait_ms"] += read_m["conn_wait_ms"]
+                metrics["sql_exec_ms"] += read_m["sql_exec_ms"]
+                metrics["sql_fetch_ms"] += read_m["sql_fetch_ms"]
+                metrics["strategy"] = "like_and"
+            except Exception as e:
+                logger.error(f"LIKE search error: {e}")
+                rows = []
 
     if rows:
+        t_rb = time.perf_counter()
         scored_files = []
         for row in rows:
             accuracy = compute_accuracy_score(clean_search, clean_file_name_for_title(row[1]))
             scored_files.append({"file_id": row[0], "file_name": row[1], "size": row[2], "accuracy": accuracy})
         scored_files.sort(key=lambda x: x["accuracy"], reverse=True)
         files = [{"file_id": f["file_id"], "file_name": f["file_name"], "size": f["size"]} for f in scored_files]
-        res = (files, offset + len(files))
-        SEARCH_RESULT_CACHE.set(cache_key, res)
-        return res
+        metrics["result_build_ms"] = (time.perf_counter() - t_rb) * 1000
+        metrics["row_count"] = len(files)
+        metrics["total_db_stage_ms"] = (time.perf_counter() - t_stage_start) * 1000
+        return files, offset + len(files), metrics
 
-    # 2. Secondary Search: Fuzzy OR Candidate Search
-    if offset == 0 and len(clean_search) >= 3:
-        all_words = [w for w in re.findall(r'\w+', clean_search.lower()) if len(w) >= 2]
-        meaningful_words = [w for w in all_words if w not in GENERIC_STOPWORDS]
-        raw_words = (meaningful_words or all_words)[:3]
+    # 2. Secondary Search: Fuzzy OR Candidate Search via FTS5 / LIKE
+    if offset == 0 and len(clean_search) >= 3 and pool:
+        t_fuzzy = time.perf_counter()
+        raw_words = terms_to_use[:3]
+        fuzzy_rows = []
         if raw_words:
-            or_clauses = []
-            or_params = []
-            for w in raw_words:
-                or_clauses.append("file_name LIKE ?")
-                or_params.append(f"%{w}%")
+            # Try FTS OR first
+            fts_or_terms = [f'"{w}"' for w in raw_words if len(w) >= 2]
+            if fts_or_terms:
+                fts_or_expr = " OR ".join(fts_or_terms)
+                fuzzy_fts_query = """
+                    SELECT m.file_id, m.file_name, m.size
+                    FROM media_fts f
+                    JOIN media m ON f.rowid = m.rowid
+                    WHERE media_fts MATCH ?
+                    ORDER BY m.date_saved DESC
+                    LIMIT 60
+                """
+                try:
+                    fuzzy_rows, read_m = await pool.execute_read(fuzzy_fts_query, (fts_or_expr,))
+                    metrics["conn_wait_ms"] += read_m["conn_wait_ms"]
+                    metrics["sql_exec_ms"] += read_m["sql_exec_ms"]
+                    metrics["sql_fetch_ms"] += read_m["sql_fetch_ms"]
+                except Exception:
+                    fuzzy_rows = []
 
-            or_stmt = " OR ".join(or_clauses)
-            fuzzy_query = f"""
-                SELECT file_id, file_name, size
-                FROM media
-                WHERE {or_stmt}
-                ORDER BY date_saved DESC
-                LIMIT 100
-            """
-            async with db.execute(fuzzy_query, tuple(or_params)) as cursor:
-                fuzzy_rows = await cursor.fetchall()
+            if not fuzzy_rows:
+                or_clauses = ["file_name LIKE ?" for _ in raw_words]
+                or_params = [f"%{w}%" for w in raw_words]
+                or_stmt = " OR ".join(or_clauses)
+                fuzzy_query = f"SELECT file_id, file_name, size FROM media WHERE {or_stmt} ORDER BY date_saved DESC LIMIT 50"
+                try:
+                    fuzzy_rows, read_m = await pool.execute_read(fuzzy_query, tuple(or_params))
+                    metrics["conn_wait_ms"] += read_m["conn_wait_ms"]
+                    metrics["sql_exec_ms"] += read_m["sql_exec_ms"]
+                    metrics["sql_fetch_ms"] += read_m["sql_fetch_ms"]
+                except Exception:
+                    fuzzy_rows = []
 
             scored_fuzzy = []
             for row in fuzzy_rows:
@@ -479,98 +731,181 @@ async def get_search_results(search_query: str, offset: int = 0) -> Tuple[List[d
                 if acc >= 0.80:
                     scored_fuzzy.append((acc, {"file_id": row[0], "file_name": row[1], "size": row[2]}))
 
+            metrics["fuzzy_ms"] = (time.perf_counter() - t_fuzzy) * 1000
+
             if scored_fuzzy:
                 scored_fuzzy.sort(key=lambda x: x[0], reverse=True)
                 fuzzy_files = [item[1] for item in scored_fuzzy[:MAX_FILES]]
-                res = (fuzzy_files, len(fuzzy_files))
-                SEARCH_RESULT_CACHE.set(cache_key, res)
-                return res
+                metrics["row_count"] = len(fuzzy_files)
+                metrics["strategy"] = "fuzzy_or"
+                metrics["total_db_stage_ms"] = (time.perf_counter() - t_stage_start) * 1000
+                return fuzzy_files, len(fuzzy_files), metrics
 
-    # 3. Tertiary Search: IMDb Correction Lookup Fallback
+    # 3. Tertiary Search: IMDb Correction Fallback
     if offset == 0 and len(clean_search) >= 3:
+        t_sp = time.perf_counter()
         try:
             imdb_suggestions = await fetch_imdb_titles(clean_search)
             for title in imdb_suggestions:
                 acc = compute_accuracy_score(clean_search, title)
                 if acc >= 0.75:
-                    corrected_terms = title.strip().split()
-                    c_where = []
-                    c_params = []
-                    for ct in corrected_terms:
-                        c_where.append("(file_name LIKE ? OR caption LIKE ?)")
-                        c_params.extend([f"%{ct}%", f"%{ct}%"])
-                    c_stmt = " AND ".join(c_where)
-                    c_query = f"SELECT file_id, file_name, size FROM media WHERE {c_stmt} ORDER BY date_saved DESC LIMIT ?"
-                    c_params.append(MAX_FILES + 1)
-
-                    async with db.execute(c_query, tuple(c_params)) as cursor:
-                        c_rows = await cursor.fetchall()
+                    c_terms = [t for t in title.strip().split() if len(t) >= 2]
+                    c_fts = [f'"{ct}"' for ct in c_terms]
+                    c_rows = []
+                    if c_fts and pool:
+                        c_expr = " AND ".join(c_fts)
+                        c_q = "SELECT m.file_id, m.file_name, m.size FROM media_fts f JOIN media m ON f.rowid = m.rowid WHERE media_fts MATCH ? ORDER BY m.date_saved DESC LIMIT ?"
+                        try:
+                            c_rows, read_m = await pool.execute_read(c_q, (c_expr, MAX_FILES + 1))
+                            metrics["conn_wait_ms"] += read_m["conn_wait_ms"]
+                            metrics["sql_exec_ms"] += read_m["sql_exec_ms"]
+                            metrics["sql_fetch_ms"] += read_m["sql_fetch_ms"]
+                        except Exception:
+                            c_rows = []
                     if c_rows:
                         corrected_files = [{"file_id": r[0], "file_name": r[1], "size": r[2]} for r in c_rows]
-                        res = (corrected_files, len(corrected_files))
-                        SEARCH_RESULT_CACHE.set(cache_key, res)
-                        return res
+                        metrics["spellcheck_ms"] = (time.perf_counter() - t_sp) * 1000
+                        metrics["row_count"] = len(corrected_files)
+                        metrics["strategy"] = "imdb_correction"
+                        metrics["total_db_stage_ms"] = (time.perf_counter() - t_stage_start) * 1000
+                        return corrected_files, len(corrected_files), metrics
         except Exception as e:
             logger.debug(f"IMDb search fallback exception: {e}")
+        metrics["spellcheck_ms"] = (time.perf_counter() - t_sp) * 1000
 
-    SEARCH_RESULT_CACHE.set(cache_key, ([], 0))
-    return [], 0
+    metrics["total_db_stage_ms"] = (time.perf_counter() - t_stage_start) * 1000
+    return [], 0, metrics
 
 
+async def get_search_results(search_query: str, offset: int = 0) -> Tuple[List[dict], int]:
+    """
+    Searches the database with LRU caching, anti-stampede deduplication, FTS5 trigram indexing,
+    and structured sub-stage tracing.
+    """
+    t0 = time.perf_counter()
+    clean_search = re.sub(r'[\._\-\[\(\]\)]+', ' ', search_query.strip())
+    clean_search = re.sub(r'\s+', ' ', clean_search).strip()
+    if not clean_search:
+        return [], 0
+
+    cache_key = f"{clean_search.lower()}_{offset}"
+    
+    # 1. Cache lookup
+    cached = SEARCH_RESULT_CACHE.get(cache_key)
+    if cached is not None:
+        cache_ms = (time.perf_counter() - t0) * 1000
+        logger.debug(
+            f"[SEARCH_TRACE] query={clean_search!r} offset={offset} "
+            f"cache_lookup_ms={cache_ms:.2f} db_ms=0.00 cache_hit=True rows={len(cached[0])}"
+        )
+        return cached
+
+    # 2. Anti-Stampede in-flight deduplication
+    async with _STAMPEDE_LOCK:
+        if cache_key in _IN_FLIGHT_SEARCHES:
+            fut = _IN_FLIGHT_SEARCHES[cache_key]
+        else:
+            loop = asyncio.get_running_loop()
+            fut = loop.create_future()
+            _IN_FLIGHT_SEARCHES[cache_key] = fut
+            # Schedule task to perform search and resolve future
+            asyncio.create_task(_run_and_resolve_search(clean_search, offset, cache_key, fut))
+
+    try:
+        files, next_offset = await asyncio.shield(fut)
+        return files, next_offset
+    except Exception as e:
+        logger.error(f"Error in in-flight search for {search_query}: {e}")
+        return [], 0
+
+
+async def _run_and_resolve_search(clean_search: str, offset: int, cache_key: str, future: asyncio.Future):
+    try:
+        t_db_start = time.perf_counter()
+        files, next_offset, metrics = await _execute_search_internal(clean_search, offset)
+        res = (files, next_offset)
+        SEARCH_RESULT_CACHE.set(cache_key, res)
+        
+        # Log structured SEARCH_TRACE
+        total_stage_ms = (time.perf_counter() - t_db_start) * 1000
+        trace_msg = (
+            f"[SEARCH_TRACE] query={clean_search!r} offset={offset} "
+            f"cache_lookup_ms={metrics['cache_lookup_ms']:.2f} "
+            f"db_connection_wait_ms={metrics['conn_wait_ms']:.2f} "
+            f"db_lock_wait_ms={metrics['lock_wait_ms']:.2f} "
+            f"sql_exec_ms={metrics['sql_exec_ms']:.2f} "
+            f"sql_fetch_ms={metrics['sql_fetch_ms']:.2f} "
+            f"spellcheck_ms={metrics['spellcheck_ms']:.2f} "
+            f"fuzzy_ms={metrics['fuzzy_ms']:.2f} "
+            f"result_build_ms={metrics['result_build_ms']:.2f} "
+            f"total_db_stage_ms={total_stage_ms:.2f} "
+            f"strategy={metrics['strategy']} rows={len(files)}"
+        )
+        if total_stage_ms > 1000:
+            logger.warning(
+                f"[SEARCH_DB_WAIT] operation=get_search_results "
+                f"connection_wait_ms={metrics['conn_wait_ms']:.2f} "
+                f"lock_wait_ms={metrics['lock_wait_ms']:.2f} "
+                f"execution_ms={metrics['sql_exec_ms']:.2f} "
+                f"total_ms={total_stage_ms:.2f} rows={len(files)} query={clean_search!r}"
+            )
+            logger.warning(trace_msg)
+        else:
+            logger.info(trace_msg)
+
+        if not future.done():
+            future.set_result(res)
+    except Exception as e:
+        logger.exception(f"Exception during search resolution: {e}")
+        if not future.done():
+            future.set_exception(e)
+    finally:
+        async with _STAMPEDE_LOCK:
+            _IN_FLIGHT_SEARCHES.pop(cache_key, None)
+
+
+# --- Write Operations (Single-Writer Serialization with ACID Safety) ---
 async def save_file_sql(media):
     file_id, file_ref = unpack_new_file_id(media.file_id)
     caption = getattr(media, 'caption', str(media.file_name))
     date_saved = datetime.datetime.now(pytz.utc)
     original_file_name = caption
 
-    pattern = re.compile(r'(?<!\w)(?:s|season)[\s._-]*?(\d{1,2})[\s._-]*?(?:e|ep|episode)[\s._-]*?(\d{1,2})(?!\d)',re.IGNORECASE)
+    pattern = re.compile(r'(?<!\w)(?:s|season)[\s._-]*?(\d{1,2})[\s._-]*?(?:e|ep|episode)[\s._-]*?(\d{1,2})(?!\d)', re.IGNORECASE)
     match = pattern.search(original_file_name)
 
     if match:
         season = int(match.group(1))
-        if match.group(2):
-            episode = int(match.group(2))
-            prefix = f"[S{season:02d} EP{episode:02d}]"
-        else:
-            prefix = f"[S{season:02d}]"
-
-        cleaned_name = pattern.sub('', original_file_name).strip()
-        cleaned_name = re.sub(r'[\s._-]+', ' ', cleaned_name).strip()
-        cleaned_name = re.sub(r'\s{2,}', ' ', cleaned_name)
+        prefix = f"[S{season:02d} EP{int(match.group(2)):02d}]" if match.group(2) else f"[S{season:02d}]"
         processed_name = f"{prefix} {media.file_name}"
     else:
         processed_name = media.file_name
+
     file_name = re.sub(r"(_|\+\s|\-|\.|\+|\[MM\]\s|\[MM\]_|\@TvSeriesBay|\@Cinema\sCompany|\@Cinema_Company|\@CC_|\@CC|\@MM_New|\@MM_Linkz|\@MOVIEHUNT|\@CL|\@FBM|\@CKMSERIES|www_DVDWap_Com_|MLM|\@WMR|\[CF\]\s|\[CF\]|\@IndianMoviez|\@tamil_mm|\@infotainmentmedia|\@trolldcompany|\@Rarefilms|\@yamandanmovies|\[YM\]|\@Mallu_Movies|\@YTSLT|\@DailyMovieZhunt|\@I_M_D_B|\@CC_All|\@PM_Old|Dvdworld|\[KMH\]|\@FBM_HW|\@Film_Kottaka|\@CC_X265|\@CelluloidCineClub|\@cinemaheist|\@telugu_moviez|\@CR_Rockers|\@CCineClub|KC_|\[KC\]|\[AML\])", " ", processed_name)
+
+    def _sync_insert(conn):
+        try:
+            conn.execute(
+                """
+                INSERT INTO media (file_id, file_ref, file_name, file_size, size, file_type, mime_type, caption, date_saved)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (file_id, file_ref, file_name, media.file_size, get_size(media.file_size), media.file_type, media.mime_type, caption, date_saved)
+            )
+            return True, 1
+        except sqlite3.IntegrityError as e:
+            if "UNIQUE constraint failed" in str(e):
+                return False, 0
+            raise e
+
     try:
-        db = await ensure_aiosqlite_connection()
-        await db.execute(
-            """
-            INSERT INTO media (file_id, file_ref, file_name, file_size, size, file_type, mime_type, caption, date_saved)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                file_id,
-                file_ref,
-                file_name,
-                media.file_size,
-                get_size(media.file_size),
-                media.file_type,
-                media.mime_type,
-                caption,
-                date_saved
-            ),
-        )
-        await db.commit()
-        return True, 1
-    except aiosqlite.IntegrityError as e:
-        if "UNIQUE constraint failed: media.file_id" in str(e):
-            return False, 0
-        else:
-            logger.exception(f"Error occurred while saving file '{file_name}': {e}")
-            return False, 2
+        await ensure_aiosqlite_connection()
+        res, metrics = await _DB_POOL.execute_write(_sync_insert)
+        return res
     except Exception as e:
-        logger.exception(f"Unexpected error occurred while saving file '{file_name}': {e}")
+        logger.exception(f"Unexpected error saving file '{file_name}': {e}")
         return False, 2
+
 
 async def save_files_sql_batch(media_list: list) -> tuple:
     if not media_list:
@@ -582,118 +917,106 @@ async def save_files_sql_batch(media_list: list) -> tuple:
         caption = getattr(media, 'caption', str(media.file_name))
         original_file_name = caption
 
-        pattern = re.compile(r'(?<!\w)(?:s|season)[\s._-]*?(\d{1,2})[\s._-]*?(?:e|ep|episode)[\s._-]*?(\d{1,2})(?!\d)',re.IGNORECASE)
+        pattern = re.compile(r'(?<!\w)(?:s|season)[\s._-]*?(\d{1,2})[\s._-]*?(?:e|ep|episode)[\s._-]*?(\d{1,2})(?!\d)', re.IGNORECASE)
         match = pattern.search(original_file_name)
 
         if match:
             season = int(match.group(1))
-            if match.group(2):
-                episode = int(match.group(2))
-                prefix = f"[S{season:02d} EP{episode:02d}]"
-            else:
-                prefix = f"[S{season:02d}]"
-
-            cleaned_name = pattern.sub('', original_file_name).strip()
-            cleaned_name = re.sub(r'[\s._-]+', ' ', cleaned_name).strip()
-            cleaned_name = re.sub(r'\s{2,}', ' ', cleaned_name)
+            prefix = f"[S{season:02d} EP{int(match.group(2)):02d}]" if match.group(2) else f"[S{season:02d}]"
             processed_name = f"{prefix} {media.file_name}"
         else:
             processed_name = media.file_name
         file_name = re.sub(r"(_|\+\s|\-|\.|\+|\[MM\]\s|\[MM\]_|\@TvSeriesBay|\@Cinema\sCompany|\@Cinema_Company|\@CC_|\@CC|\@MM_New|\@MM_Linkz|\@MOVIEHUNT|\@CL|\@FBM|\@CKMSERIES|www_DVDWap_Com_|MLM|\@WMR|\[CF\]\s|\[CF\]|\@IndianMoviez|\@tamil_mm|\@infotainmentmedia|\@trolldcompany|\@Rarefilms|\@yamandanmovies|\[YM\]|\@Mallu_Movies|\@YTSLT|\@DailyMovieZhunt|\@I_M_D_B|\@CC_All|\@PM_Old|Dvdworld|\[KMH\]|\@FBM_HW|\@Film_Kottaka|\@CC_X265|\@CelluloidCineClub|\@cinemaheist|\@telugu_moviez|\@CR_Rockers|\@CCineClub|KC_|\[KC\]|\[AML\])", " ", processed_name)
         data_to_insert.append((
-            file_id,
-            file_ref,
-            file_name,
-            media.file_size,
-            get_size(media.file_size),
-            media.file_type,
-            media.mime_type,
-            caption,
-            date_saved
+            file_id, file_ref, file_name, media.file_size, get_size(media.file_size),
+            media.file_type, media.mime_type, caption, date_saved
         ))
-    saved_count = 0
-    duplicate_count = 0
-    error_count = 0
-    try:
-        db = await ensure_aiosqlite_connection()
-        cursor = await db.executemany(
+
+    def _sync_batch(conn):
+        cur = conn.executemany(
             """
             INSERT OR IGNORE INTO media (file_id, file_ref, file_name, file_size, size, file_type, mime_type, caption, date_saved)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            data_to_insert,
+            data_to_insert
         )
-        await db.commit()
-        saved_count = cursor.rowcount
-        duplicate_count = len(data_to_insert) - saved_count
+        saved = cur.rowcount if cur.rowcount >= 0 else len(data_to_insert)
+        dups = len(data_to_insert) - saved
+        return saved, dups, 0
+
+    try:
+        await ensure_aiosqlite_connection()
+        (saved, dups, errs), metrics = await _DB_POOL.execute_write(_sync_batch)
+        return saved, dups, errs
     except Exception as e:
         logger.error(f"Error in batch saving to SQLite DB: {e}", exc_info=True)
-        error_count = len(data_to_insert)
-        saved_count = 0
-        duplicate_count = 0
-    return saved_count, duplicate_count, error_count
+        return 0, 0, len(data_to_insert)
 
 
 async def delete_file_sql(file_id: str) -> bool:
-    """Deletes a single file record from the SQLite database."""
+    def _sync_del(conn):
+        cur = conn.execute("DELETE FROM media WHERE file_id = ?", (file_id,))
+        return cur.rowcount > 0
+
     try:
-        db = await ensure_aiosqlite_connection()
-        await db.execute("DELETE FROM media WHERE file_id = ?", (file_id,))
-        await db.commit()
-        return True
+        await ensure_aiosqlite_connection()
+        res, _ = await _DB_POOL.execute_write(_sync_del)
+        return res
     except Exception as e:
-        logging.error(f"Error occurred while deleting file with ID '{file_id}': {e}", exc_info=True)
+        logging.error(f"Error deleting file '{file_id}': {e}", exc_info=True)
         return False
 
 
 async def delete_all_files_sql() -> Tuple[bool, int]:
-    """Deletes all file records from the SQLite database."""
-    try:
-        db = await ensure_aiosqlite_connection()
-        cursor = await db.execute("SELECT COUNT(*) FROM media")
-        count_row = await cursor.fetchone()
-        total_files = count_row[0] if count_row else 0
-        
-        if total_files == 0:
-            logging.info("No files to delete, database is already empty.")
+    def _sync_del_all(conn):
+        cur = conn.execute("SELECT COUNT(*) FROM media")
+        count = cur.fetchone()[0]
+        if count == 0:
             return True, 0
-            
-        await db.execute("DELETE FROM media")
-        await db.commit()
-        logging.info(f"All {total_files} files deleted from database.")
-        return True, total_files
+        conn.execute("DELETE FROM media")
+        try:
+            conn.execute("INSERT INTO media_fts(media_fts) VALUES('rebuild');")
+        except Exception:
+            pass
+        return True, count
+
+    try:
+        await ensure_aiosqlite_connection()
+        (status, total), _ = await _DB_POOL.execute_write(_sync_del_all)
+        return status, total
     except Exception as e:
-        logging.exception(f"Error occurred while deleting all files from database: {e}")
+        logging.exception(f"Error deleting all files from database: {e}")
         return False, 0
 
 
-# Memory cache for fast repeated suggestion lookups
-SUGGESTION_CACHE = {}
-MAX_SUGGESTION_CACHE_SIZE = 1000
-
 def clean_file_name_for_title(file_name: str) -> str:
-    """Cleans raw file name into a clean movie/series title using QueryNormalizer."""
     return QueryNormalizer.clean_release_name(file_name)
 
+
 async def get_suggestions_sql(search_query: str, limit: int = 5, min_accuracy: float = 0.80) -> List[str]:
-    """Generates high-precision spell check suggestions from SQLite media table using SearchEngine."""
+    """Generates high-precision spell check suggestions using FTS5 trigram indexing and SearchEngine."""
     if not search_query or len(search_query.strip()) < 2:
         return []
 
     cache_key = search_query.strip().lower()
-    if cache_key in SUGGESTION_CACHE:
-        return SUGGESTION_CACHE[cache_key]
+    cached = SUGGESTION_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
 
+    t0 = time.perf_counter()
     try:
-        db = await ensure_aiosqlite_connection()
-        top_suggestions = await SearchEngine.get_suggestions_sql(db, search_query, limit=limit)
+        await ensure_aiosqlite_connection()
+        top_suggestions = await SearchEngine.get_suggestions_sql(_DB_POOL, search_query, limit=limit)
     except Exception as e:
         logger.error(f"Error generating suggestions with SearchEngine: {e}")
         top_suggestions = []
 
-    if len(SUGGESTION_CACHE) > MAX_SUGGESTION_CACHE_SIZE:
-        SUGGESTION_CACHE.clear()
-    SUGGESTION_CACHE[cache_key] = top_suggestions
+    dur_ms = (time.perf_counter() - t0) * 1000
+    if dur_ms > 500:
+        logger.warning(
+            f"[SEARCH_DB_WAIT] operation=get_suggestions_sql "
+            f"execution_ms={dur_ms:.2f} rows={len(top_suggestions)} query={search_query!r}"
+        )
 
+    SUGGESTION_CACHE.set(cache_key, top_suggestions)
     return top_suggestions
-
