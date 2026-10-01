@@ -50,13 +50,17 @@ class PerfTracker:
 
     def log(self):
         total_ms = int((time.time() - self.start_t) * 1000)
-        logger.info(
+        msg = (
             f"[PERF] action={self.action} user_id={self.user_id} query={self.query!r} "
             f"total_ms={total_ms} db_ms={int(self.db_ms)} telegram_ms={int(self.telegram_ms)} "
             f"telegram_calls={self.telegram_calls} send={self.send_count} edit={self.edit_count} "
             f"delete={self.delete_count} get_participant={self.get_participant_count} "
             f"retries={self.retries} flood_wait={self.flood_wait_seconds} cache_hit={self.cache_hit}"
         )
+        if total_ms > 5000:
+            logger.warning(msg)
+        else:
+            logger.debug(msg)
 
 class ApiCallMetrics:
     def __init__(self):

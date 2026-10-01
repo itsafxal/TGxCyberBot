@@ -198,7 +198,8 @@ async def migrate_to_sql():
 
     data_exists_in_table = await check_data_exists("media")
     if data_exists_in_table:
-        logging.warning("Migration note: Data already exists. New/updated columns may not be populated for old records.")
+        logging.info("SQLite 'media' table already populated. Skipping full migration.")
+        return
     else:
         logging.info("SQLite 'media' table is empty. Proceeding with full migration.")
 

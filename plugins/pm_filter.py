@@ -1018,6 +1018,8 @@ async def reply_with_spell_check_suggestions(message, cyber, search):
             tracker.send_count = 1
             tracker.telegram_calls = 1
             await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
+    except (UserIsBlocked, InputUserDeactivated):
+        logger.info(f"User {message.from_user.id} blocked the bot or account deactivated (spell check).")
     except FloodWait as e:
         logger.warning(f"FloodWait in reply_with_spell_check_suggestions: {e.value}s")
         GLOBAL_METRICS.inc("flood_wait_events")
@@ -1063,6 +1065,8 @@ async def auto_filter(client, message):
         tracker.send_count = 1
         tracker.telegram_calls = 1
         await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
+    except (UserIsBlocked, InputUserDeactivated):
+        logger.info(f"User {message.from_user.id} blocked the bot or account deactivated (auto_filter).")
     except FloodWait as e:
         logger.warning(f"FloodWait in auto_filter: {e.value}s")
         GLOBAL_METRICS.inc("flood_wait_events")
@@ -1076,6 +1080,8 @@ async def auto_filter(client, message):
                     parse_mode=enums.ParseMode.HTML
                 )
                 await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
+            except (UserIsBlocked, InputUserDeactivated):
+                pass
             except Exception as ex:
                 logger.error(f"Error retrying auto_filter reply: {ex}")
     except Exception as e:
@@ -1120,6 +1126,8 @@ async def pm_auto_filter(client, message):
         tracker.send_count = 1
         tracker.telegram_calls = 1
         await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
+    except (UserIsBlocked, InputUserDeactivated):
+        logger.info(f"User {message.from_user.id} blocked the bot or account deactivated (pm_auto_filter).")
     except FloodWait as e:
         logger.warning(f"FloodWait in pm_auto_filter: {e.value}s")
         GLOBAL_METRICS.inc("flood_wait_events")
@@ -1133,6 +1141,8 @@ async def pm_auto_filter(client, message):
                     reply_markup=InlineKeyboardMarkup(btn),
                 )
                 await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
+            except (UserIsBlocked, InputUserDeactivated):
+                pass
             except Exception as ex:
                 logger.error(f"Error retrying pm_auto_filter reply: {ex}")
     except Exception as e:
