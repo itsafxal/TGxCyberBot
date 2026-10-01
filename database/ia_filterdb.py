@@ -425,16 +425,45 @@ async def fetch_mongo_ids_by_keyword(keyword: str, file_type: str = None) -> set
             
     return unique_ids
     
+class SqlMediaDoc:
+    def __init__(self, file_id, file_ref, file_name, file_size, size, file_type, mime_type, caption, date_saved):
+        self.file_id = file_id
+        self.file_ref = file_ref
+        self.file_name = file_name
+        self.file_size = file_size
+        self.size = size
+        self.file_type = file_type
+        self.mime_type = mime_type
+        self.caption = caption
+        self.date = date_saved
+
 async def get_file_details(query):
+    # 1. Fast local SQLite indexed primary-key check (0.1ms)
+    try:
+        from sql.db import ensure_aiosqlite_connection
+        sql_db = await ensure_aiosqlite_connection()
+        async with sql_db.execute(
+            "SELECT file_id, file_ref, file_name, file_size, size, file_type, mime_type, caption, date_saved FROM media WHERE file_id = ?",
+            (str(query),)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                return [SqlMediaDoc(*row)]
+    except Exception as e:
+        logger.debug(f"SQLite get_file_details error for {query}: {e}")
+
+    # 2. Fallback to MongoDB Media2 and Media3
     filter_query = {'_id': query}
-    
-    filedetails = await Media2.find_one(filter_query)
-    if filedetails:
-        return [filedetails]
-    
-    filedetails_media2 = await Media3.find_one(filter_query)
-    if filedetails_media2:
-        return [filedetails_media2]
+    try:
+        filedetails = await Media2.find_one(filter_query)
+        if filedetails:
+            return [filedetails]
+        
+        filedetails_media2 = await Media3.find_one(filter_query)
+        if filedetails_media2:
+            return [filedetails_media2]
+    except Exception as e:
+        logger.debug(f"MongoDB get_file_details error for {query}: {e}")
     return []
 
 def encode_file_id(raw_file_id: bytes) -> str:

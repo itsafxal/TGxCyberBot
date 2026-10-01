@@ -441,14 +441,6 @@ class SearchEngine:
                     candidate_rows = []
 
         if not candidate_rows:
-            # Fallback 2: Recent media sample
-            try:
-                async with db_conn.execute("SELECT DISTINCT file_name FROM media ORDER BY date_saved DESC LIMIT 100") as cursor:
-                    candidate_rows = await cursor.fetchall()
-            except Exception:
-                candidate_rows = []
-
-        if not candidate_rows:
             return []
 
         scored_list: List[Tuple[float, str, Any]] = []

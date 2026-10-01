@@ -23,8 +23,8 @@ from sql.db import get_search_results, delete_file_sql, get_suggestions_sql
 from utils import (
     get_size, temp, is_requested_one, is_requested_two, add_auto_delete_message,
     premium_emoji, get_stream_buttons, get_stream_buttons_async, build_dynamic_fsub_keyboard,
-    safe_delete_message, safe_edit_message_text, safe_edit_reply_markup, safe_answer_callback,
-    IN_FLIGHT_CALLBACKS, PerfTracker, GLOBAL_METRICS, format_time_str
+    safe_delete_message, safe_send_message, safe_edit_message_text, safe_edit_reply_markup, safe_answer_callback,
+    IN_FLIGHT_CALLBACKS, PerfTracker, RequestTracker, GLOBAL_METRICS, format_time_str
 )
 
 # --- Configuration ---
@@ -941,10 +941,10 @@ async def reply_with_spell_check_suggestions(message, cyber, search):
     """Replies with fast spell check suggestions from SQLite DB when no search results are found."""
     if not message.from_user:
         return
-    tracker = PerfTracker(action="spell_check", user_id=message.from_user.id, query=search)
-    t0 = time.time()
+    req_tracker = RequestTracker(op="spell_check", user_id=message.from_user.id, query=search)
+    req_tracker.start_stage("db")
     suggestions = await get_suggestions_sql(search)
-    tracker.db_ms = (time.time() - t0) * 1000
+    req_tracker.end_stage("db")
 
     try:
         if suggestions:
@@ -995,40 +995,41 @@ async def reply_with_spell_check_suggestions(message, cyber, search):
             ])
             
             spell_text = script.SPELL_CHECK_TXT.format(cyber=cyber, search=search)
-            t1 = time.time()
+            req_tracker.start_stage("telegram_send")
             GLOBAL_METRICS.inc("send_message")
-            reply_msg = await message.reply_text(
+            reply_msg = await safe_send_message(
+                client=message._client,
+                chat_id=message.chat.id,
                 text=spell_text,
                 reply_markup=InlineKeyboardMarkup(btn),
-                parse_mode=enums.ParseMode.HTML
+                parse_mode=enums.ParseMode.HTML,
+                reply_to_message_id=message.id
             )
-            tracker.telegram_ms = (time.time() - t1) * 1000
-            tracker.send_count = 1
-            tracker.telegram_calls = 1
-            await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
+            req_tracker.end_stage("telegram_send")
+            if reply_msg:
+                await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
         else:
-            t1 = time.time()
+            req_tracker.start_stage("telegram_send")
             GLOBAL_METRICS.inc("send_message")
-            reply_msg = await message.reply(
-                f"Hᴇʏ {cyber} 💫,\n"
-                f"Nᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n"
-                f"➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴇsᴇᴅ.✨"
+            reply_msg = await safe_send_message(
+                client=message._client,
+                chat_id=message.chat.id,
+                text=(
+                    f"Hᴇʏ {cyber} 💫,\n"
+                    f"Nᴏ Sᴇᴀʀᴄʜ Rᴇꜱᴜʟᴛ Fᴏᴜɴᴅ Fᴏʀ Yᴏᴜʀ Rᴇᴏ̨ᴜᴇsᴛᴇᴅ Mᴏᴠɪᴇ.\n\n"
+                    f"➪ Sᴇɴᴅ Mᴇ A Cᴏʀʀᴇᴄᴛ Sᴘᴇʟʟɪɴɢ. Oʀ Pʟᴇᴀꜱᴇ Cʜᴇᴄᴋ Tʜᴀᴛ Mᴏᴠɪᴇ Oᴛᴛ Rᴇʟᴇᴇsᴇᴅ.✨"
+                ),
+                reply_to_message_id=message.id
             )
-            tracker.telegram_ms = (time.time() - t1) * 1000
-            tracker.send_count = 1
-            tracker.telegram_calls = 1
-            await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
+            req_tracker.end_stage("telegram_send")
+            if reply_msg:
+                await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
     except (UserIsBlocked, InputUserDeactivated):
         logger.info(f"User {message.from_user.id} blocked the bot or account deactivated (spell check).")
-    except FloodWait as e:
-        logger.warning(f"FloodWait in reply_with_spell_check_suggestions: {e.value}s")
-        GLOBAL_METRICS.inc("flood_wait_events")
-        if e.value <= 3:
-            await asyncio.sleep(e.value + 0.1)
     except Exception as e:
         logger.error(f"Error in reply_with_spell_check_suggestions: {e}")
     finally:
-        tracker.log()
+        req_tracker.log()
 
 async def auto_filter(client, message):
     if not message.from_user:
@@ -1040,13 +1041,13 @@ async def auto_filter(client, message):
     if len(search) < 2 or len(search) > 150:
         return
 
-    tracker = PerfTracker(action="search_group", user_id=message.from_user.id, query=search)
-    t0 = time.time()
+    req_tracker = RequestTracker(op="search_group", user_id=message.from_user.id, query=search)
+    req_tracker.start_stage("db")
     files, offset = await get_search_results(search, offset=0)
-    tracker.db_ms = (time.time() - t0) * 1000
+    req_tracker.end_stage("db")
 
     if not files:
-        tracker.log()
+        req_tracker.log()
         await reply_with_spell_check_suggestions(message, cyber, search)
         return
 
@@ -1054,40 +1055,25 @@ async def auto_filter(client, message):
     btn = generate_main_buttons(files, offset=0, search_key=search_key, next_offset=offset)
     
     try:
-        t1 = time.time()
+        req_tracker.start_stage("telegram_send")
         GLOBAL_METRICS.inc("send_message")
-        reply_msg = await message.reply_text(
+        reply_msg = await safe_send_message(
+            client=client,
+            chat_id=message.chat.id,
             text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
             reply_markup=InlineKeyboardMarkup(btn),
-            parse_mode=enums.ParseMode.HTML
+            parse_mode=enums.ParseMode.HTML,
+            reply_to_message_id=message.id
         )
-        tracker.telegram_ms = (time.time() - t1) * 1000
-        tracker.send_count = 1
-        tracker.telegram_calls = 1
-        await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
+        req_tracker.end_stage("telegram_send")
+        if reply_msg:
+            await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
     except (UserIsBlocked, InputUserDeactivated):
         logger.info(f"User {message.from_user.id} blocked the bot or account deactivated (auto_filter).")
-    except FloodWait as e:
-        logger.warning(f"FloodWait in auto_filter: {e.value}s")
-        GLOBAL_METRICS.inc("flood_wait_events")
-        if e.value <= 3:
-            await asyncio.sleep(e.value + 0.1)
-            try:
-                GLOBAL_METRICS.inc("send_message")
-                reply_msg = await message.reply_text(
-                    text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
-                    reply_markup=InlineKeyboardMarkup(btn),
-                    parse_mode=enums.ParseMode.HTML
-                )
-                await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
-            except (UserIsBlocked, InputUserDeactivated):
-                pass
-            except Exception as ex:
-                logger.error(f"Error retrying auto_filter reply: {ex}")
     except Exception as e:
         logger.error(f"Error in auto_filter: {e}")
     finally:
-        tracker.log()
+        req_tracker.log()
 
     SEARCH_CACHE.set(search_key, search)
 
@@ -1101,13 +1087,13 @@ async def pm_auto_filter(client, message):
     if len(search) < 2 or len(search) > 150:
         return
 
-    tracker = PerfTracker(action="search_pm", user_id=message.from_user.id, query=search)
-    t0 = time.time()
+    req_tracker = RequestTracker(op="search_pm", user_id=message.from_user.id, query=search)
+    req_tracker.start_stage("db")
     files, offset = await get_search_results(search, offset=0)
-    tracker.db_ms = (time.time() - t0) * 1000
+    req_tracker.end_stage("db")
 
     if not files:
-        tracker.log()
+        req_tracker.log()
         await reply_with_spell_check_suggestions(message, cyber, search)
         return
 
@@ -1115,40 +1101,25 @@ async def pm_auto_filter(client, message):
     btn = generate_main_buttons(files, offset=0, search_key=search_key, next_offset=offset)
  
     try:
-        t1 = time.time()
+        req_tracker.start_stage("telegram_send")
         GLOBAL_METRICS.inc("send_message")
-        reply_msg = await message.reply_text(
+        reply_msg = await safe_send_message(
+            client=client,
+            chat_id=message.chat.id,
             text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
             parse_mode=enums.ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(btn),
+            reply_to_message_id=message.id
         )
-        tracker.telegram_ms = (time.time() - t1) * 1000
-        tracker.send_count = 1
-        tracker.telegram_calls = 1
-        await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
+        req_tracker.end_stage("telegram_send")
+        if reply_msg:
+            await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
     except (UserIsBlocked, InputUserDeactivated):
         logger.info(f"User {message.from_user.id} blocked the bot or account deactivated (pm_auto_filter).")
-    except FloodWait as e:
-        logger.warning(f"FloodWait in pm_auto_filter: {e.value}s")
-        GLOBAL_METRICS.inc("flood_wait_events")
-        if e.value <= 3:
-            await asyncio.sleep(e.value + 0.1)
-            try:
-                GLOBAL_METRICS.inc("send_message")
-                reply_msg = await message.reply_text(
-                    text=script.MAIN_RESULT_TXT.format(cyber=cyber, search=search, page=1),
-                    parse_mode=enums.ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(btn),
-                )
-                await add_auto_delete_message(message.chat.id, reply_msg.id, temp.FILTER_DEL_TIME, msg_type="filter")
-            except (UserIsBlocked, InputUserDeactivated):
-                pass
-            except Exception as ex:
-                logger.error(f"Error retrying pm_auto_filter reply: {ex}")
     except Exception as e:
         logger.error(f"Error in pm_auto_filter: {e}")
     finally:
-        tracker.log()
+        req_tracker.log()
 
     SEARCH_CACHE.set(search_key, search)
     

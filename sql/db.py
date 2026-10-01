@@ -82,6 +82,7 @@ async def init_aiosqlite_connection(db_path: Optional[str] = None):
             _global_aiosqlite_connection = await aiosqlite.connect(db_path)
             await _global_aiosqlite_connection.execute("PRAGMA journal_mode = WAL;")
             await _global_aiosqlite_connection.execute("PRAGMA synchronous = NORMAL;")
+            await _global_aiosqlite_connection.execute("PRAGMA busy_timeout = 10000;")
             await _global_aiosqlite_connection.execute("PRAGMA cache_size = -64000;")
             await _global_aiosqlite_connection.execute("PRAGMA mmap_size = 268435456;")
             await _global_aiosqlite_connection.execute("PRAGMA temp_store = MEMORY;")
@@ -104,6 +105,7 @@ async def init_aiosqlite_connection(db_path: Optional[str] = None):
             await _global_aiosqlite_connection.execute("CREATE INDEX IF NOT EXISTS idx_media_file_name ON media (file_name);")
             await _global_aiosqlite_connection.execute("CREATE INDEX IF NOT EXISTS idx_media_caption ON media (caption);")
             await _global_aiosqlite_connection.execute("CREATE INDEX IF NOT EXISTS idx_date_saved ON media (date_saved);")
+            await _global_aiosqlite_connection.execute("CREATE INDEX IF NOT EXISTS idx_media_date_name ON media (date_saved DESC, file_name);")
             await _global_aiosqlite_connection.commit()
             logging.info(f"aiosqlite connection opened with WAL and indexes to {db_path}")
         return _global_aiosqlite_connection
@@ -263,7 +265,18 @@ async def migrate_to_sql():
     logging.info(f"\n✨ Overall Migration Summary: {total_files_saved_across_all_sources} files saved across all specified sources.")
 
 
-# --- Regular Bot Operation Functions ---
+# --- Persistent HTTP Session for External Lookups ---
+_EXTERNAL_HTTP_SESSION: Optional[aiohttp.ClientSession] = None
+_HTTP_LOCK = asyncio.Lock()
+
+async def get_http_session() -> aiohttp.ClientSession:
+    global _EXTERNAL_HTTP_SESSION
+    if _EXTERNAL_HTTP_SESSION is None or _EXTERNAL_HTTP_SESSION.closed:
+        async with _HTTP_LOCK:
+            if _EXTERNAL_HTTP_SESSION is None or _EXTERNAL_HTTP_SESSION.closed:
+                timeout = aiohttp.ClientTimeout(total=2.0, connect=1.0)
+                _EXTERNAL_HTTP_SESSION = aiohttp.ClientSession(timeout=timeout)
+    return _EXTERNAL_HTTP_SESSION
 
 async def fetch_imdb_titles(search_query: str) -> List[str]:
     """Fetches movie title candidates from IMDb suggestion API with OMDb fallback and LRU caching."""
@@ -280,29 +293,29 @@ async def fetch_imdb_titles(search_query: str) -> List[str]:
     url_imdb = f"https://v3.sg.media-imdb.com/suggestion/x/{clean_q}.json"
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url_imdb, headers=headers, timeout=aiohttp.ClientTimeout(total=2)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    items = data.get("d", [])
-                    titles = [item.get("l") for item in items if item.get("l")]
-                    if titles:
-                        IMDB_CACHE.set(clean_q, titles)
-                        return titles
+        session = await get_http_session()
+        async with session.get(url_imdb, headers=headers) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                items = data.get("d", [])
+                titles = [item.get("l") for item in items if item.get("l")]
+                if titles:
+                    IMDB_CACHE.set(clean_q, titles)
+                    return titles
     except Exception as e:
-        logger.debug(f"IMDb v3 suggestion fetch exception for '{search_query}': {e}")
+        logger.debug(f"IMDb suggestion fetch exception for '{search_query}': {e}")
 
     try:
         url_omdb = f"https://www.omdbapi.com/?s={clean_q}&apikey=32906d20"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url_omdb, timeout=aiohttp.ClientTimeout(total=2)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    if data.get("Response") == "True":
-                        items = data.get("Search", [])
-                        titles = [item.get("Title") for item in items if item.get("Title")]
-                        IMDB_CACHE.set(clean_q, titles)
-                        return titles
+        session = await get_http_session()
+        async with session.get(url_omdb) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                if data.get("Response") == "True":
+                    items = data.get("Search", [])
+                    titles = [item.get("Title") for item in items if item.get("Title")]
+                    IMDB_CACHE.set(clean_q, titles)
+                    return titles
     except Exception as e:
         logger.debug(f"OMDb fallback exception for '{search_query}': {e}")
 
@@ -424,7 +437,9 @@ async def get_search_results(search_query: str, offset: int = 0) -> Tuple[List[d
 
     # 2. Secondary Search: Fuzzy OR Candidate Search
     if offset == 0 and len(clean_search) >= 3:
-        raw_words = [w for w in re.findall(r'\w+', clean_search.lower()) if len(w) >= 2]
+        all_words = [w for w in re.findall(r'\w+', clean_search.lower()) if len(w) >= 2]
+        meaningful_words = [w for w in all_words if w not in GENERIC_STOPWORDS]
+        raw_words = (meaningful_words or all_words)[:3]
         if raw_words:
             or_clauses = []
             or_params = []
@@ -438,7 +453,7 @@ async def get_search_results(search_query: str, offset: int = 0) -> Tuple[List[d
                 FROM media
                 WHERE {or_stmt}
                 ORDER BY date_saved DESC
-                LIMIT 200
+                LIMIT 100
             """
             async with db.execute(fuzzy_query, tuple(or_params)) as cursor:
                 fuzzy_rows = await cursor.fetchall()

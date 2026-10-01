@@ -25,7 +25,7 @@ from pyrogram.handlers.handler import Handler
 from pyrogram.raw.all import layer as pyrogram_layer
 from database.users_chats_db import db
 from info import SESSION, API_ID, API_HASH, BOT_TOKEN, LOG_STR, REQ_CHANNEL1, REQ_CHANNEL2, LOG_CHANNEL, OWNER_ID
-from utils import temp, load_datas, delete_messages_loop, clean_all_trash
+from utils import temp, load_datas, delete_messages_loop, clean_all_trash, HEALTH_WATCHDOG
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 async def weekly_trash_cleanup_job(client):
@@ -350,13 +350,24 @@ class Bot(Client):
                 await asyncio.sleep(10)
 
     async def resource_monitor(self):
-        """Monitor system resources"""
+        """Monitor system resources and event-loop health"""
         while self._is_running:
             try:
-                process = psutil.Process(os.getpid())
-                mem = process.memory_info().rss / (1024 ** 2)
-                cpu = process.cpu_percent()
-                logger.info(f"📊 Memory: {mem:.2f} MB | CPU: {cpu:.2f}%")
+                mem_str = "N/A"
+                cpu_str = "N/A"
+                if psutil:
+                    process = psutil.Process(os.getpid())
+                    mem = process.memory_info().rss / (1024 ** 2)
+                    cpu = process.cpu_percent()
+                    mem_str = f"{mem:.2f} MB"
+                    cpu_str = f"{cpu:.2f}%"
+                
+                health = await HEALTH_WATCHDOG.get_health_report()
+                logger.info(
+                    f"📊 [HEALTH] Memory: {mem_str} | CPU: {cpu_str} | "
+                    f"Loop Lag: {health['loop_lag_ms']}ms | Tasks: {health['active_tasks']} | "
+                    f"Metrics: {health['metrics']}"
+                )
                 await asyncio.sleep(3600)
             except asyncio.CancelledError:
                 break

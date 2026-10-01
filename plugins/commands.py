@@ -20,7 +20,7 @@ from utils import (
     get_stream_buttons, get_stream_buttons_async, build_dynamic_fsub_keyboard, 
     check_loop_sub_dynamic, safe_b64decode, format_time_str, parse_time_to_seconds, 
     add_auto_delete_message, track_bot_message, clean_all_trash,
-    safe_delete_message, safe_edit_message_text, safe_edit_reply_markup
+    safe_delete_message, safe_send_message, safe_edit_message_text, safe_edit_reply_markup
 )
 from sql.db import delete_all_files_sql, delete_file_sql, get_search_results
 
@@ -158,12 +158,24 @@ async def start(client, message):
             InlineKeyboardButton('✜ ᴀʙᴏᴜᴛ', callback_data='about')
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
-        await message.reply_photo(
-            photo=random.choice(PICS),
-            caption=script.START_TXT.format(message.from_user.mention if user_id else "User", temp.U_NAME, temp.B_NAME),
-            reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.HTML
-        )
+        start_txt = script.START_TXT.format(message.from_user.mention if user_id else "User", temp.U_NAME, temp.B_NAME)
+        try:
+            await message.reply_photo(
+                photo=random.choice(PICS),
+                caption=start_txt,
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.HTML
+            )
+        except Exception as pe:
+            logger.warning(f"Failed to send start photo, falling back to text: {pe}")
+            await safe_send_message(
+                client=client,
+                chat_id=message.chat.id,
+                text=start_txt,
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.HTML,
+                reply_to_message_id=message.id
+            )
         return
 
     try:
@@ -203,12 +215,24 @@ async def start(client, message):
             InlineKeyboardButton('✜ ᴀʙᴏᴜᴛ', callback_data='about')
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
-        await message.reply_photo(
-            photo=random.choice(PICS),
-            caption=script.START_TXT.format(message.from_user.mention if user_id else "User", temp.U_NAME, temp.B_NAME),
-            reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.HTML
-        )
+        start_txt = script.START_TXT.format(message.from_user.mention if user_id else "User", temp.U_NAME, temp.B_NAME)
+        try:
+            await message.reply_photo(
+                photo=random.choice(PICS),
+                caption=start_txt,
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.HTML
+            )
+        except Exception as pe:
+            logger.warning(f"Failed to send start photo, falling back to text: {pe}")
+            await safe_send_message(
+                client=client,
+                chat_id=message.chat.id,
+                text=start_txt,
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.HTML,
+                reply_to_message_id=message.id
+            )
         return
 
     data = message.command[1]

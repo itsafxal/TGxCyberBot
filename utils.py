@@ -30,6 +30,68 @@ SMART_OPEN = '“'
 SMART_CLOSE = '”'
 START_CHAR = ('\'', '"', SMART_OPEN)
 
+# --- Request & Concurrency Instrumentation ---
+class RequestTracker:
+    """Stage-by-stage structured timing and tracing for search and critical request pipelines."""
+    def __init__(self, op: str, user_id: int = 0, query: str = ""):
+        self.req_id = f"{int(time.time() * 1000) % 1000000:06d}"
+        self.op = op
+        self.user_id = user_id
+        self.query = query
+        self.start_t = time.perf_counter()
+        self.stages: Dict[str, float] = {}
+        self.current_stage_name: Optional[str] = None
+        self.current_stage_start: Optional[float] = None
+
+    def start_stage(self, stage_name: str):
+        now = time.perf_counter()
+        if self.current_stage_name and self.current_stage_start:
+            self.stages[self.current_stage_name] = (now - self.current_stage_start) * 1000
+        self.current_stage_name = stage_name
+        self.current_stage_start = now
+
+    def end_stage(self, stage_name: Optional[str] = None):
+        now = time.perf_counter()
+        target = stage_name or self.current_stage_name
+        if target and self.current_stage_start:
+            self.stages[target] = (now - self.current_stage_start) * 1000
+        self.current_stage_name = None
+        self.current_stage_start = None
+
+    def log(self):
+        if self.current_stage_name:
+            self.end_stage()
+        total_ms = (time.perf_counter() - self.start_t) * 1000
+        stages_str = " ".join([f"{k}_ms={int(v)}" for k, v in self.stages.items()])
+        msg = f"[REQ] id={self.req_id} user={self.user_id} op={self.op} query={self.query!r} total_ms={int(total_ms)} {stages_str}"
+        if total_ms > 4000:
+            logger.warning(msg)
+        else:
+            logger.info(msg)
+
+class RuntimeHealthWatchdog:
+    """Lightweight event-loop lag and health monitor."""
+    def __init__(self):
+        self.last_lag_ms = 0.0
+
+    async def check_loop_lag(self) -> float:
+        t0 = time.perf_counter()
+        await asyncio.sleep(0)
+        lag_ms = (time.perf_counter() - t0) * 1000
+        self.last_lag_ms = lag_ms
+        return lag_ms
+
+    async def get_health_report(self) -> Dict[str, Any]:
+        lag_ms = await self.check_loop_lag()
+        task_count = len(asyncio.all_tasks())
+        return {
+            "loop_lag_ms": round(lag_ms, 2),
+            "active_tasks": task_count,
+            "metrics": GLOBAL_METRICS.get_stats(),
+        }
+
+HEALTH_WATCHDOG = RuntimeHealthWatchdog()
+
 # --- Performance & Telemetry Instrumentation ---
 class PerfTracker:
     def __init__(self, action: str, user_id: int = 0, query: str = ""):
@@ -85,18 +147,23 @@ GLOBAL_METRICS = ApiCallMetrics()
 
 # --- Concurrency & In-Flight Tracking ---
 class InFlightTracker:
-    """Tracks in-flight operations per key (e.g. (user_id, message_id)) to deduplicate concurrent requests."""
-    def __init__(self):
-        self._active = set()
+    """Tracks in-flight operations per key (e.g. (user_id, message_id)) to deduplicate concurrent requests with auto-expiration."""
+    def __init__(self, ttl: float = 30.0):
+        self._active: Dict[Any, float] = {}
+        self.ttl = ttl
 
     def acquire(self, key) -> bool:
+        now = time.time()
         if key in self._active:
-            return False
-        self._active.add(key)
+            if now < self._active[key]:
+                return False
+            else:
+                del self._active[key]
+        self._active[key] = now + self.ttl
         return True
 
     def release(self, key):
-        self._active.discard(key)
+        self._active.pop(key, None)
 
 IN_FLIGHT_CALLBACKS = InFlightTracker()
 
@@ -142,6 +209,51 @@ class MembershipCache:
 MEMBERSHIP_CACHE = MembershipCache(positive_ttl=60.0, negative_ttl=8.0)
 
 # --- Safe Telegram Operations ---
+
+async def safe_send_message(
+    client,
+    chat_id: Union[int, str],
+    text: str,
+    reply_markup: Optional[InlineKeyboardMarkup] = None,
+    parse_mode = None,
+    reply_to_message_id: Optional[int] = None,
+    link_preview_options: Optional[LinkPreviewOptions] = None
+) -> Optional[Message]:
+    """
+    Safe send_message with retry backoff, bounded FloodWait handling, and transient error recovery.
+    """
+    GLOBAL_METRICS.inc("send_message")
+    for attempt in range(3):
+        try:
+            return await client.send_message(
+                chat_id=chat_id,
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode,
+                reply_to_message_id=reply_to_message_id,
+                link_preview_options=link_preview_options
+            )
+        except (UserIsBlocked, InputUserDeactivated):
+            logger.info(f"Cannot send message to {chat_id}: user blocked bot or account deactivated.")
+            return None
+        except FloodWait as e:
+            GLOBAL_METRICS.inc("flood_wait_events")
+            logger.warning(f"FloodWait in safe_send_message to {chat_id}: {e.value}s (attempt {attempt+1})")
+            if attempt == 0 and e.value <= 3:
+                await asyncio.sleep(e.value + 0.1)
+                continue
+            return None
+        except Exception as e:
+            err_str = str(e)
+            if any(transient in err_str for transient in ["RPC_CALL_FAIL", "INTERDC", "500", "No workers running", "TimeoutError"]):
+                GLOBAL_METRICS.inc("rpc_errors")
+                logger.warning(f"Transient RPC error in safe_send_message: {e} (attempt {attempt+1})")
+                if attempt < 2:
+                    await asyncio.sleep(0.3 * (attempt + 1) + random.uniform(0.05, 0.15))
+                    continue
+            logger.error(f"Error in safe_send_message to {chat_id}: {e}")
+            return None
+    return None
 
 async def safe_delete_message(client_or_message, chat_id: Optional[int] = None, message_id: Optional[int] = None) -> bool:
     """
@@ -325,7 +437,7 @@ async def load_datas(id: int):
     temp.COUNT_THRESHOLD1 = k.get('channel1_threshold')
     temp.COUNT_THRESHOLD2 = k.get('channel2_threshold')
     temp.COUNT_THRESHOLD3 = k.get('channel3_threshold')
-    temp.AUTO_FILTER = d.get('autofilter')
+    temp.AUTO_FILTER = bool(d.get('autofilter', True)) if d else True
     temp.FILTER_DEL_TIME = del_s.get('filter_del_time', 300)
     temp.FILE_DEL_TIME = del_s.get('file_del_time', 900)
     print(f"Loadout for ID {id} has been loaded.")

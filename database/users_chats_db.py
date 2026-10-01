@@ -1,6 +1,36 @@
-# https://github.com/odysseusmax/animated-lamp/blob/master/bot/database/database.py
 import motor.motor_asyncio
 from info import DATABASE_NAME, DATABASE_URI
+from collections import OrderedDict
+import time
+
+class LRUCache:
+    def __init__(self, max_size=10000, ttl=86400):
+        self.cache = OrderedDict()
+        self.max_size = max_size
+        self.ttl = ttl
+
+    def get(self, key):
+        if key in self.cache:
+            val, timestamp = self.cache[key]
+            if time.time() - timestamp < self.ttl:
+                self.cache.move_to_end(key)
+                return val
+            else:
+                del self.cache[key]
+        return None
+
+    def set(self, key, val):
+        if key in self.cache:
+            self.cache.move_to_end(key)
+        self.cache[key] = (val, time.time())
+        if len(self.cache) > self.max_size:
+            self.cache.popitem(last=False)
+
+    def delete(self, key):
+        self.cache.pop(key, None)
+
+_USER_CACHE = LRUCache(max_size=10000, ttl=86400)
+_CHAT_CACHE = LRUCache(max_size=5000, ttl=86400)
 
 class Database:
     
@@ -45,6 +75,7 @@ class Database:
         if not id:
             return
         id_int = int(id)
+        _USER_CACHE.set(id_int, True)
         if not await self.is_user_exist(id_int):
             user = self.new_user(id_int, name or "User")
             try:
@@ -55,9 +86,16 @@ class Database:
     async def is_user_exist(self, id):
         if not id:
             return False
+        id_int = int(id)
+        cached = _USER_CACHE.get(id_int)
+        if cached is not None:
+            return cached
         try:
-            user = await self.col.find_one({'id': int(id)})
-            return bool(user)
+            user = await self.col.find_one({'id': id_int})
+            exists = bool(user)
+            if exists:
+                _USER_CACHE.set(id_int, True)
+            return exists
         except Exception:
             return False
     
@@ -107,28 +145,49 @@ class Database:
 
 
     async def add_chat(self, chat, title):
-        chat = self.new_group(chat, title)
-        await self.grp.insert_one(chat)
+        chat_id = int(chat)
+        _CHAT_CACHE.set(chat_id, {"is_disabled": False, "reason": ""})
+        chat_doc = self.new_group(chat_id, title)
+        try:
+            await self.grp.insert_one(chat_doc)
+        except Exception:
+            pass
     
 
     async def get_chat(self, chat):
-        chat = await self.grp.find_one({'id':int(chat)})
-        return False if not chat else chat.get('chat_status')
+        if not chat:
+            return False
+        chat_id = int(chat)
+        cached = _CHAT_CACHE.get(chat_id)
+        if cached is not None:
+            return cached
+        try:
+            chat_doc = await self.grp.find_one({'id': chat_id})
+            status = False if not chat_doc else chat_doc.get('chat_status', {"is_disabled": False, "reason": ""})
+            if status is not False:
+                _CHAT_CACHE.set(chat_id, status)
+            return status
+        except Exception:
+            return False
     
 
     async def re_enable_chat(self, id):
+        chat_id = int(id)
         chat_status=dict(
             is_disabled=False,
             reason="",
             )
-        await self.grp.update_one({'id': int(id)}, {'$set': {'chat_status': chat_status}})
+        _CHAT_CACHE.set(chat_id, chat_status)
+        await self.grp.update_one({'id': chat_id}, {'$set': {'chat_status': chat_status}})
         
     async def disable_chat(self, chat, reason="No Reason"):
+        chat_id = int(chat)
         chat_status=dict(
             is_disabled=True,
             reason=reason,
             )
-        await self.grp.update_one({'id': int(chat)}, {'$set': {'chat_status': chat_status}})
+        _CHAT_CACHE.set(chat_id, chat_status)
+        await self.grp.update_one({'id': chat_id}, {'$set': {'chat_status': chat_status}})
     
 
     async def total_chat_count(self):
@@ -232,16 +291,26 @@ class Database:
         return data
 
     async def get_autofilter(self):
-        data = await self.admn.find_one({'id': 'auto'})
-        if not data:
-            data = {
-                'id': 'auto',
-                'autofilter': True
-            }
-            await self.admn.insert_one(data)
-        return data
+        try:
+            data = await self.adm.find_one({'id': 'auto'})
+            if not data:
+                data = await self.admn.find_one({'id': 'auto'})
+            if not data:
+                data = {
+                    'id': 'auto',
+                    'autofilter': True
+                }
+                await self.adm.insert_one(data)
+            return data
+        except Exception:
+            return {'id': 'auto', 'autofilter': True}
 
-    async def update_autofilter(self, value):
+    async def update_autofilter(self, value: bool):
+        try:
+            await self.adm.update_one({'id': 'auto'}, {'$set': {'autofilter': value}}, upsert=True)
+            await self.admn.update_one({'id': 'auto'}, {'$set': {'autofilter': value}}, upsert=True)
+        except Exception as e:
+            print(f"Error updating autofilter: {e}")
         await self.adm.update_one({'id': 'auto'}, {'$set': {'autofilter': value}})
 
     async def update_loadout(self, key, value, id: int):
