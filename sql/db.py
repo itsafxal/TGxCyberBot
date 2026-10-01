@@ -22,8 +22,14 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Optimization: Increased batch size for fewer DB calls
 BATCH_SIZE = 10000
-PROGRESS_STEP = 50000
 SUPER_BATCH_SIZE = 100000  # Commit every 100,000 files to prevent single massive transaction
+
+GENERIC_STOPWORDS = {
+    "the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "of", "with", "by", "from",
+    "movie", "film", "series", "season", "episode", "ep", "s", "e", "part", "vol", "volume",
+    "all", "full", "hd", "rip", "bluray", "webrip", "dvdrip", "x264", "x265", "hevc",
+    "1080p", "720p", "480p", "2160p", "4k", "hindi", "tamil", "telugu", "malayalam", "kannada", "english"
+}
 
 # --- Database Clients ---
 SQLITE_DB = f"media_{BOT_TOKEN}.sqlite3"
@@ -277,6 +283,15 @@ async def get_http_session() -> aiohttp.ClientSession:
                 timeout = aiohttp.ClientTimeout(total=2.0, connect=1.0)
                 _EXTERNAL_HTTP_SESSION = aiohttp.ClientSession(timeout=timeout)
     return _EXTERNAL_HTTP_SESSION
+
+async def close_http_session():
+    global _EXTERNAL_HTTP_SESSION
+    if _EXTERNAL_HTTP_SESSION is not None and not _EXTERNAL_HTTP_SESSION.closed:
+        try:
+            await _EXTERNAL_HTTP_SESSION.close()
+        except Exception:
+            pass
+        _EXTERNAL_HTTP_SESSION = None
 
 async def fetch_imdb_titles(search_query: str) -> List[str]:
     """Fetches movie title candidates from IMDb suggestion API with OMDb fallback and LRU caching."""

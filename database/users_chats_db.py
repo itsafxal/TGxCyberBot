@@ -311,7 +311,6 @@ class Database:
             await self.admn.update_one({'id': 'auto'}, {'$set': {'autofilter': value}}, upsert=True)
         except Exception as e:
             print(f"Error updating autofilter: {e}")
-        await self.adm.update_one({'id': 'auto'}, {'$set': {'autofilter': value}})
 
     async def update_loadout(self, key, value, id: int):
         await self.adm.update_one({'id': id}, {'$set': {key: value}})

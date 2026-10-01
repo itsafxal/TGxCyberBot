@@ -324,6 +324,11 @@ class Bot(Client):
         except Exception as e:
             logger.warning(f"Error shutting down scheduler: {e}")
         try:
+            from sql.db import close_http_session
+            await close_http_session()
+        except Exception:
+            pass
+        try:
             await super().stop()
         except Exception as e:
             logger.warning(f"Error disconnecting client: {e}")
